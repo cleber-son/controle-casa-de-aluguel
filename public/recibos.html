@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Recibos — Controle de Aluguel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>🏠 Controle de Aluguel</h1>
+  <nav>
+    <a href="/">Mês atual</a>
+    <a href="/recibos" class="active">Recibos</a>
+    <a href="/casas">Casas</a>
+  </nav>
+  <form method="POST" action="/logout" style="margin:0">
+    <button type="submit" class="logout-btn">Sair</button>
+  </form>
+</header>
+
+<main>
+  <div class="card card-controls">
+    <h2>Recibos do mês</h2>
+    <div class="field-inline">
+      <div class="field">
+        <label>Ano</label>
+        <input id="sel-ano" type="number" min="2020" max="2099">
+      </div>
+      <div class="field">
+        <label>Mês</label>
+        <select id="sel-mes">
+          <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+          <option value="3">Março</option><option value="4">Abril</option>
+          <option value="5">Maio</option><option value="6">Junho</option>
+          <option value="7">Julho</option><option value="8">Agosto</option>
+          <option value="9">Setembro</option><option value="10">Outubro</option>
+          <option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="primary" onclick="carregar()">Carregar</button>
+      </div>
+      <div class="field" style="flex:2">
+        <label>&nbsp;</label>
+        <button class="ghost" onclick="window.print()">🖨️ Imprimir todos</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="grid" class="recibos-grid"></div>
+</main>
+
+<!-- Modal mensagem WhatsApp -->
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:500px;width:100%">
+    <h3 style="margin:0 0 12px">Mensagem para WhatsApp</h3>
+    <textarea id="modal-text" style="width:100%;min-height:240px;background:#0a0c11;color:var(--txt);border:1px solid var(--border);padding:12px;border-radius:6px;font-family:inherit;font-size:14px"></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="fecharModal()">Fechar</button>
+      <button class="primary" onclick="copiarTexto()">📋 Copiar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+function brl(n) {
+  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+async function api(method, url) {
+  const r = await fetch(url, { method });
+  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
+  return r.json();
+}
+
+(function init() {
+  const q = new URLSearchParams(location.search);
+  const hoje = new Date();
+  document.getElementById('sel-ano').value = parseInt(q.get('ano')) || hoje.getFullYear();
+  document.getElementById('sel-mes').value = parseInt(q.get('mes')) || (hoje.getMonth() + 1);
+  carregar();
+})();
+
+async function carregar() {
+  const ano = document.getElementById('sel-ano').value;
+  const mes = document.getElementById('sel-mes').value;
+  const data = await api('GET', `/api/recibos/${ano}/${mes}`);
+  document.getElementById('grid').innerHTML = data.recibos.map(r => `
+    <div class="recibo-card">
+      <div class="nome">${escapeHtml(r.inquilino || '—')}</div>
+      <div class="ref">Ref.: ${escapeHtml(r.ref)}</div>
+      <div class="linha agua">
+        <div class="lbl">ÁGUA:</div><div class="val">${brl(r.agua)}</div>
+      </div>
+      <div class="linha luz">
+        <div class="lbl">LUZ:</div><div class="val">${brl(r.luz)}</div>
+      </div>
+      <div class="linha outros">
+        <div class="lbl">${escapeHtml(r.outros_descricao || 'OUTROS')}:</div>
+        <div class="val">${r.outros > 0 ? brl(r.outros) : '—'}</div>
+      </div>
+      <div class="linha total">
+        <div class="lbl">TOTAL:</div><div class="val">${brl(r.total)}</div>
+      </div>
+      <div class="actions">
+        <button onclick="abrirMensagem(${r.casa})">💬 Texto WhatsApp</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Guarda mensagens pra reaproveitar
+  window._mensagens = {};
+  data.recibos.forEach(r => { window._mensagens[r.casa] = r.mensagem_whatsapp; });
+}
+
+function abrirMensagem(casaNum) {
+  document.getElementById('modal-text').value = window._mensagens[casaNum] || '';
+  document.getElementById('modal').style.display = 'flex';
+}
+function fecharModal() {
+  document.getElementById('modal').style.display = 'none';
+}
+function copiarTexto() {
+  const t = document.getElementById('modal-text');
+  t.select();
+  document.execCommand('copy');
+  alert('Copiado! Cole no WhatsApp.');
+}
+</script>
+
+</body>
+</html>

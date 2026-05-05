@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Controle de Aluguel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>🏠 Controle de Aluguel</h1>
+  <nav>
+    <a href="/" class="active">Mês atual</a>
+    <a href="/recibos">Recibos</a>
+    <a href="/casas">Casas</a>
+  </nav>
+  <form method="POST" action="/logout" style="margin:0">
+    <button type="submit" class="logout-btn">Sair</button>
+  </form>
+</header>
+
+<main>
+
+  <!-- ─────────── SELETOR DE MÊS ─────────── -->
+  <div class="card">
+    <h2>Mês de referência</h2>
+    <div class="field-inline">
+      <div class="field">
+        <label>Ano</label>
+        <input id="sel-ano" type="number" min="2020" max="2099" step="1">
+      </div>
+      <div class="field">
+        <label>Mês</label>
+        <select id="sel-mes">
+          <option value="1">Janeiro</option>
+          <option value="2">Fevereiro</option>
+          <option value="3">Março</option>
+          <option value="4">Abril</option>
+          <option value="5">Maio</option>
+          <option value="6">Junho</option>
+          <option value="7">Julho</option>
+          <option value="8">Agosto</option>
+          <option value="9">Setembro</option>
+          <option value="10">Outubro</option>
+          <option value="11">Novembro</option>
+          <option value="12">Dezembro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="primary" onclick="carregarMes()">Carregar</button>
+      </div>
+      <div class="field" style="flex:2">
+        <label>&nbsp;</label>
+        <a class="btn-ghost" id="link-recibos" href="/recibos">📄 Ver recibos deste mês</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────── HEADER DO MÊS (água + relógios de luz) ─────────── -->
+  <div class="card" id="card-header">
+    <h2>Contas do mês <span id="ref-mes" class="right"></span></h2>
+
+    <div class="field-inline">
+      <div class="field">
+        <label>Conta de água — total (R$)</label>
+        <input id="agua-total" type="number" step="0.01" min="0">
+      </div>
+      <div class="field">
+        <label>Divisor água</label>
+        <input id="agua-divisor" type="number" step="0.5" min="1">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <span id="agua-por-unidade" style="display:inline-block;padding:9px 0;color:var(--muted);font-size:13px"></span>
+      </div>
+    </div>
+
+    <div id="relogios-area" style="margin-top:8px"></div>
+
+    <div style="margin-top:8px">
+      <button class="primary" onclick="salvarHeader()">💾 Salvar e recalcular</button>
+      <span id="header-toast" class="toast"></span>
+    </div>
+  </div>
+
+  <!-- ─────────── TABELA DE LANÇAMENTOS ─────────── -->
+  <div class="card">
+    <h2>Lançamentos por casa</h2>
+    <div style="overflow-x:auto">
+      <table id="tbl-lancamentos">
+        <thead>
+          <tr>
+            <th>Casa</th>
+            <th style="min-width:140px">Inquilino</th>
+            <th style="text-align:right">Água</th>
+            <th>✓</th>
+            <th style="text-align:right">Luz</th>
+            <th>✓</th>
+            <th style="min-width:160px">Outros</th>
+            <th style="text-align:right">R$</th>
+            <th>✓</th>
+            <th style="text-align:right">Aluguel</th>
+            <th>✓</th>
+            <th style="text-align:right">Total</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-lanc"></tbody>
+      </table>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin-top:10px">
+      Edite valores direto na célula e saia do campo (Tab) — salva sozinho.
+      Marque o ✓ quando o inquilino pagar. Casa <em>vazia</em> não entra na divisão da luz.
+    </p>
+  </div>
+
+  <!-- ─────────── PAIS (split 50/50 + descontos) ─────────── -->
+  <div class="card">
+    <h2>Repasse — pai e mãe (50/50 do aluguel recebido)</h2>
+
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))">
+      <div class="stat">
+        <div class="label">Aluguel recebido (mês)</div>
+        <div class="value" id="t-aluguel-recebido">—</div>
+      </div>
+      <div class="stat">
+        <div class="label">Pai — bruto 50%</div>
+        <div class="value" id="t-bruto-pai" style="color:var(--info)">—</div>
+      </div>
+      <div class="stat">
+        <div class="label">Mãe — bruto 50%</div>
+        <div class="value" id="t-bruto-mae" style="color:var(--info)">—</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      <div id="bloco-pai"></div>
+      <div id="bloco-mae"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let mesAtual = null;   // objeto { mes, lancamentos, relogios, descontos, pagamentos, totais }
+
+function brl(n) {
+  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function toast(elId, msg, ok) {
+  const el = document.getElementById(elId);
+  el.className = 'toast ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+  setTimeout(() => { el.className = 'toast'; el.textContent = ''; }, 3000);
+}
+
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; throw new Error('Não autenticado'); }
+  return r.json();
+}
+
+// ──────── Inicializa o seletor com mês corrente ────────
+(function initSeletor() {
+  const hoje = new Date();
+  document.getElementById('sel-ano').value = hoje.getFullYear();
+  document.getElementById('sel-mes').value = hoje.getMonth() + 1;
+})();
+
+async function carregarMes() {
+  const ano = parseInt(document.getElementById('sel-ano').value, 10);
+  const mes = parseInt(document.getElementById('sel-mes').value, 10);
+  if (!ano || !mes) return;
+  document.getElementById('link-recibos').href = `/recibos?ano=${ano}&mes=${mes}`;
+
+  const data = await api('GET', `/api/mes/${ano}/${mes}`);
+  mesAtual = data;
+  document.getElementById('ref-mes').textContent = `${NOMES_MES[mes]} / ${ano}`;
+  renderHeader(data);
+  renderLancamentos(data);
+  renderPais(data);
+}
+
+function renderHeader(data) {
+  document.getElementById('agua-total').value   = data.mes.agua_total   || '';
+  document.getElementById('agua-divisor').value = data.mes.agua_divisor || 10;
+  atualizarPorUnidadeAgua();
+
+  const area = document.getElementById('relogios-area');
+  const html = data.relogios.map(r => `
+    <div class="field-inline" data-relogio="${r.relogio}">
+      <div class="field">
+        <label>Conta de luz — relógio ${r.relogio} (R$)</label>
+        <input class="rel-valor" type="number" step="0.01" min="0" value="${r.valor_total || ''}">
+      </div>
+      <div class="field" style="flex:2">
+        <label>&nbsp;</label>
+        <span style="display:inline-block;padding:9px 0;color:var(--muted);font-size:12px">
+          Casas neste relógio: ${data.lancamentos.filter(l => l.casa_relogio_luz === r.relogio).map(l => `${l.casa_numero}${l.vazia ? '(vazia)' : ''}`).join(', ')}
+        </span>
+      </div>
+    </div>
+  `).join('');
+  area.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Nenhum relógio configurado. Configure os relógios na aba <a href="/casas" style="color:var(--accent)">Casas</a>.</p>';
+}
+
+function atualizarPorUnidadeAgua() {
+  const total = parseFloat(document.getElementById('agua-total').value) || 0;
+  const div = parseFloat(document.getElementById('agua-divisor').value) || 0;
+  const unidade = div > 0 ? total / div : 0;
+  document.getElementById('agua-por-unidade').textContent =
+    div > 0 ? `→ ${brl(unidade)} por unidade` : '';
+}
+document.getElementById('agua-total').addEventListener('input', atualizarPorUnidadeAgua);
+document.getElementById('agua-divisor').addEventListener('input', atualizarPorUnidadeAgua);
+
+async function salvarHeader() {
+  if (!mesAtual) return;
+  const aguaTotal = parseFloat(document.getElementById('agua-total').value) || 0;
+  const aguaDivisor = parseFloat(document.getElementById('agua-divisor').value) || 10;
+  const relogios = [...document.querySelectorAll('#relogios-area [data-relogio]')].map(el => ({
+    relogio: parseInt(el.dataset.relogio, 10),
+    valor_total: parseFloat(el.querySelector('.rel-valor').value) || 0,
+  }));
+  try {
+    await api('PUT', `/api/mes/${mesAtual.mes.id}/header`, {
+      agua_total: aguaTotal,
+      agua_divisor: aguaDivisor,
+      relogios,
+    });
+    await carregarMes();
+    toast('header-toast', '✅ Salvo e recalculado', true);
+  } catch (e) {
+    toast('header-toast', '❌ ' + e.message, false);
+  }
+}
+
+function renderLancamentos(data) {
+  const tbody = document.getElementById('tbody-lanc');
+  tbody.innerHTML = data.lancamentos.map(l => {
+    const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0) + (l.aluguel_valor || 0);
+    return `
+      <tr data-id="${l.id}" class="${l.vazia ? 'linha-vazia' : ''}">
+        <td>${l.casa_numero}</td>
+        <td>
+          <input type="text" value="${escapeHtml(l.inquilino || '')}" data-field="inquilino"
+                 placeholder="(vazia)" onblur="onCellChange(this)">
+        </td>
+        <td><input type="number" step="0.01" value="${l.agua_valor || 0}" data-field="agua_valor" onblur="onCellChange(this)"></td>
+        <td><input type="checkbox" data-field="agua_pago" ${l.agua_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td><input type="number" step="0.01" value="${l.luz_valor || 0}" data-field="luz_valor" onblur="onCellChange(this)"></td>
+        <td><input type="checkbox" data-field="luz_pago" ${l.luz_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td><input type="text" value="${escapeHtml(l.outros_descricao || '')}" data-field="outros_descricao" onblur="onCellChange(this)" placeholder="—"></td>
+        <td><input type="number" step="0.01" value="${l.outros_valor || 0}" data-field="outros_valor" onblur="onCellChange(this)"></td>
+        <td><input type="checkbox" data-field="outros_pago" ${l.outros_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td><input type="number" step="0.01" value="${l.aluguel_valor || 0}" data-field="aluguel_valor" onblur="onCellChange(this)"></td>
+        <td><input type="checkbox" data-field="aluguel_pago" ${l.aluguel_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td class="num">${brl(total)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+async function onCellChange(input) {
+  const tr = input.closest('tr');
+  const id = tr.dataset.id;
+  const field = input.dataset.field;
+  let value;
+  if (input.type === 'checkbox') value = input.checked ? 1 : 0;
+  else if (input.type === 'number') value = parseFloat(input.value) || 0;
+  else value = input.value;
+
+  // Se o inquilino virou vazio (texto em branco), marca vazia=1 implicitamente.
+  const body = { [field]: value };
+  if (field === 'inquilino') {
+    body.vazia = value && String(value).trim() ? 0 : 1;
+  }
+
+  try {
+    await api('PUT', `/api/lancamento/${id}`, body);
+    // Se mexeu em algo que afeta cálculos, recarrega o mês inteiro.
+    if (field === 'inquilino' || field === 'aluguel_pago') {
+      await carregarMes();
+    } else {
+      // Atualiza só a coluna total da linha.
+      const ag = parseFloat(tr.querySelector('[data-field=agua_valor]').value) || 0;
+      const lz = parseFloat(tr.querySelector('[data-field=luz_valor]').value) || 0;
+      const ot = parseFloat(tr.querySelector('[data-field=outros_valor]').value) || 0;
+      const al = parseFloat(tr.querySelector('[data-field=aluguel_valor]').value) || 0;
+      tr.querySelector('td.num').textContent = brl(ag + lz + ot + al);
+    }
+  } catch (e) {
+    alert('Erro ao salvar: ' + e.message);
+  }
+}
+
+// ──────── PAIS ────────
+function renderPais(data) {
+  document.getElementById('t-aluguel-recebido').textContent = brl(data.totais.aluguel_recebido);
+  document.getElementById('t-bruto-pai').textContent = brl(data.totais.bruto_pai);
+  document.getElementById('t-bruto-mae').textContent = brl(data.totais.bruto_mae);
+
+  document.getElementById('bloco-pai').innerHTML = blocoPai('pai', '👨 Pai',
+    data.totais.bruto_pai, data.totais.desconto_pai, data.totais.liquido_pai,
+    data.descontos.filter(d => d.destinatario === 'pai'),
+    data.pagamentos.find(p => p.destinatario === 'pai') || { pago: 0 });
+
+  document.getElementById('bloco-mae').innerHTML = blocoPai('mae', '👩 Mãe',
+    data.totais.bruto_mae, data.totais.desconto_mae, data.totais.liquido_mae,
+    data.descontos.filter(d => d.destinatario === 'mae'),
+    data.pagamentos.find(p => p.destinatario === 'mae') || { pago: 0 });
+}
+
+function blocoPai(dest, titulo, bruto, desc, liquido, descontos, pagamento) {
+  const linhas = descontos.map(d => `
+    <tr>
+      <td>${escapeHtml(d.descricao)}</td>
+      <td class="num">${brl(d.valor)}</td>
+      <td><button class="danger" onclick="removerDesconto(${d.id})">×</button></td>
+    </tr>
+  `).join('') || `<tr><td colspan="3" style="color:var(--muted);font-size:12px">Sem descontos.</td></tr>`;
+
+  return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--panel-2)">
+      <h3 style="margin:0 0 10px;font-size:14px">${titulo}</h3>
+
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+        <span>Bruto (50%)</span><span>${brl(bruto)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--err)">
+        <span>− Descontos</span><span>${brl(desc)}</span>
+      </div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:6px 0">
+      <div style="display:flex;justify-content:space-between;font-weight:600;font-size:16px;color:var(--accent)">
+        <span>Líquido</span><span>${brl(liquido)}</span>
+      </div>
+
+      <table style="margin-top:14px">${linhas}</table>
+
+      <div class="field-inline" style="margin-top:10px">
+        <div class="field" style="flex:3">
+          <input type="text" id="desc-desc-${dest}" placeholder="Ex: Seguro do carro" style="width:100%">
+        </div>
+        <div class="field" style="flex:1">
+          <input type="number" step="0.01" id="desc-val-${dest}" placeholder="0,00" style="width:100%">
+        </div>
+        <div class="field">
+          <button class="ghost" onclick="adicionarDesconto('${dest}')">+ Desconto</button>
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;text-transform:none;font-size:14px;color:var(--txt)">
+        <input type="checkbox" ${pagamento.pago ? 'checked' : ''} onchange="marcarPagoPai('${dest}', this.checked)">
+        Pago${pagamento.data_pagamento ? ' em ' + pagamento.data_pagamento : ''}
+      </label>
+    </div>
+  `;
+}
+
+async function adicionarDesconto(dest) {
+  const desc = document.getElementById(`desc-desc-${dest}`).value.trim();
+  const valor = parseFloat(document.getElementById(`desc-val-${dest}`).value) || 0;
+  if (!desc) return alert('Informe a descrição');
+  if (valor <= 0) return alert('Informe um valor maior que zero');
+  await api('POST', '/api/desconto', { mes_id: mesAtual.mes.id, destinatario: dest, descricao: desc, valor });
+  await carregarMes();
+}
+async function removerDesconto(id) {
+  if (!confirm('Remover este desconto?')) return;
+  await api('DELETE', '/api/desconto/' + id);
+  await carregarMes();
+}
+async function marcarPagoPai(dest, pago) {
+  await api('PUT', '/api/pagamento-pai', { mes_id: mesAtual.mes.id, destinatario: dest, pago });
+  await carregarMes();
+}
+
+// Carrega ao abrir
+carregarMes();
+</script>
+
+</body>
+</html>

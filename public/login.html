@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Controle de Aluguel — Login</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="login-wrapper">
+  <div class="login-card">
+    <h1>🏠 Controle de Aluguel</h1>
+    <div class="sub">Entre com sua senha para continuar.</div>
+
+    <div id="erro-box" class="erro" style="display:none">Senha incorreta. Tente novamente.</div>
+
+    <form method="POST" action="/login" autocomplete="on">
+      <div class="field">
+        <label for="senha">Senha</label>
+        <input id="senha" name="senha" type="password" autofocus required style="width:100%">
+      </div>
+      <button type="submit" class="primary">Entrar</button>
+    </form>
+  </div>
+</div>
+<script>
+  if (new URLSearchParams(location.search).get('erro') === '1') {
+    document.getElementById('erro-box').style.display = 'block';
+  }
+</script>
+</body>
+</html>

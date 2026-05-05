@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Casas — Controle de Aluguel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>🏠 Controle de Aluguel</h1>
+  <nav>
+    <a href="/">Mês atual</a>
+    <a href="/recibos">Recibos</a>
+    <a href="/casas" class="active">Casas</a>
+  </nav>
+  <form method="POST" action="/logout" style="margin:0">
+    <button type="submit" class="logout-btn">Sair</button>
+  </form>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>Casas cadastradas</h2>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
+      Aqui você define o inquilino padrão, o valor de aluguel e como cada casa
+      participa da divisão das contas.
+      <strong>Unidades de luz/água</strong>: peso na divisão. Default 1.
+      Se uma casa "vale por 2" (como a Casa 7 / Erivan), ponha <code>2</code>.
+      <strong>Relógio luz</strong>: agrupa casas no mesmo relógio para dividir só a conta dele.
+    </p>
+    <div style="overflow-x:auto">
+      <table id="tbl-casas">
+        <thead>
+          <tr>
+            <th>Nº</th>
+            <th>Inquilino atual</th>
+            <th>Aluguel padrão</th>
+            <th>Relógio luz</th>
+            <th>Unid. luz</th>
+            <th>Unid. água</th>
+            <th>Ativa?</th>
+            <th>Observações</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-casas"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Adicionar nova casa</h2>
+    <div class="field-inline">
+      <div class="field" style="flex:0 0 70px"><label>Nº</label><input id="nv-numero" type="number" min="1"></div>
+      <div class="field" style="flex:2"><label>Inquilino</label><input id="nv-inquilino" type="text"></div>
+      <div class="field"><label>Aluguel R$</label><input id="nv-aluguel" type="number" step="0.01" value="0"></div>
+      <div class="field"><label>Relógio luz</label><input id="nv-relogio" type="number" min="1" value="1"></div>
+      <div class="field"><label>Unid. luz</label><input id="nv-uluz" type="number" step="0.5" value="1"></div>
+      <div class="field"><label>Unid. água</label><input id="nv-uagua" type="number" step="0.5" value="1"></div>
+      <div class="field"><label>&nbsp;</label><button class="primary" onclick="adicionar()">+ Adicionar</button></div>
+    </div>
+    <span id="toast" class="toast"></span>
+  </div>
+
+</main>
+
+<script>
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
+  return r.json();
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function toast(msg, ok) {
+  const el = document.getElementById('toast');
+  el.className = 'toast ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+  setTimeout(() => { el.className = 'toast'; el.textContent = ''; }, 2500);
+}
+
+async function carregar() {
+  const list = await api('GET', '/api/casas');
+  document.getElementById('tbody-casas').innerHTML = list.map(c => `
+    <tr data-id="${c.id}">
+      <td><input type="number" value="${c.numero}" data-field="numero" onblur="salvar(this)" style="width:60px"></td>
+      <td><input type="text" value="${escapeHtml(c.inquilino || '')}" data-field="inquilino" onblur="salvar(this)" placeholder="(sem inquilino)"></td>
+      <td><input type="number" step="0.01" value="${c.aluguel_padrao}" data-field="aluguel_padrao" onblur="salvar(this)" style="width:90px"></td>
+      <td><input type="number" min="1" value="${c.relogio_luz}" data-field="relogio_luz" onblur="salvar(this)" style="width:60px"></td>
+      <td><input type="number" step="0.5" value="${c.unidades_luz}" data-field="unidades_luz" onblur="salvar(this)" style="width:60px"></td>
+      <td><input type="number" step="0.5" value="${c.unidades_agua}" data-field="unidades_agua" onblur="salvar(this)" style="width:60px"></td>
+      <td><input type="checkbox" data-field="ativa" ${c.ativa ? 'checked' : ''} onchange="salvar(this)"></td>
+      <td><input type="text" value="${escapeHtml(c.observacoes || '')}" data-field="observacoes" onblur="salvar(this)"></td>
+      <td><button class="danger" onclick="remover(${c.id})">excluir</button></td>
+    </tr>
+  `).join('');
+}
+
+async function salvar(input) {
+  const tr = input.closest('tr');
+  const id = tr.dataset.id;
+  const field = input.dataset.field;
+  let value;
+  if (input.type === 'checkbox') value = input.checked ? 1 : 0;
+  else if (input.type === 'number') value = parseFloat(input.value);
+  else value = input.value;
+  await api('PUT', '/api/casas/' + id, { [field]: value });
+  toast('✅ Salvo', true);
+}
+
+async function adicionar() {
+  const body = {
+    numero:         parseInt(document.getElementById('nv-numero').value, 10),
+    inquilino:      document.getElementById('nv-inquilino').value.trim(),
+    aluguel_padrao: parseFloat(document.getElementById('nv-aluguel').value) || 0,
+    relogio_luz:    parseInt(document.getElementById('nv-relogio').value, 10) || 1,
+    unidades_luz:   parseFloat(document.getElementById('nv-uluz').value) || 1,
+    unidades_agua:  parseFloat(document.getElementById('nv-uagua').value) || 1,
+    ativa: 1,
+  };
+  if (!body.numero) return toast('Informe o número da casa', false);
+  const r = await api('POST', '/api/casas', body);
+  if (r.ok) {
+    ['nv-numero','nv-inquilino','nv-aluguel','nv-relogio','nv-uluz','nv-uagua'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('nv-aluguel').value = 0;
+    document.getElementById('nv-relogio').value = 1;
+    document.getElementById('nv-uluz').value = 1;
+    document.getElementById('nv-uagua').value = 1;
+    await carregar();
+    toast('✅ Casa adicionada', true);
+  } else {
+    toast('❌ ' + r.error, false);
+  }
+}
+
+async function remover(id) {
+  if (!confirm('Excluir esta casa? (se já houver lançamentos, ela será apenas desativada)')) return;
+  const r = await api('DELETE', '/api/casas/' + id);
+  if (r.ok) {
+    toast(r.deletada ? '✅ Excluída' : '✅ Desativada (havia histórico)', true);
+    await carregar();
+  } else {
+    toast('❌ ' + r.error, false);
+  }
+}
+
+carregar();
+</script>
+
+</body>
+</html>
