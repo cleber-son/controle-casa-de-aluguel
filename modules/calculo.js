@@ -5,27 +5,41 @@
 // ÁGUA:
 //   valor_por_unidade = agua_total / agua_divisor
 //   casa.agua_valor   = valor_por_unidade * casa.unidades_agua
-//   (casa vazia ainda gera lançamento, mas com agua_valor=0 por padrão —
-//    você pode editar manualmente se quiser cobrar do "ar".)
+//   (casa vazia ainda gera lançamento, mas com agua_valor=0 por padrão.)
 //
 // LUZ (por relógio):
 //   Para cada relógio com valor_total > 0:
 //     casas_no_relogio = casas com relogio_luz=R que NÃO estão vazias no mês
 //     soma_unidades    = sum(casa.unidades_luz para casas_no_relogio)
 //     casa.luz_valor   = (valor_total / soma_unidades) * casa.unidades_luz
-//   Casa vazia naquele relógio NÃO paga luz (o "ar" não consome).
+//   Casa vazia naquele relógio NÃO paga luz.
 //
 // PAIS (split):
 //   total_recebido_aluguel = soma de aluguel_valor onde aluguel_pago=1
 //   bruto_pai = bruto_mae = total_recebido_aluguel * 0.5
 //   liquido_pai = bruto_pai - soma(descontos do pai no mês)
 //   liquido_mae = bruto_mae - soma(descontos da mae no mês)
+//
+// STATUS DE PAGAMENTO:
+//   Cada lançamento tem 4 flags (água, luz, outros, aluguel).
+//   "totalmente pago" = todos os 4 flags=1 OU casa vazia.
+//   Quando vira totalmente pago, gravamos pago_em = hoje.
+//   Quando algum desmarca, pago_em volta pra null.
 
 const db = require('./db');
 const { log } = require('./logger');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function hojeISO() {
+  // YYYY-MM-DD na timezone do servidor (já configurada para São Paulo via TZ)
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 /**
@@ -53,7 +67,7 @@ function recalcularMes(mesId) {
 
   // ─── LUZ por relógio ───
   const relogios = db.prepare('SELECT * FROM contas_luz_relogio WHERE mes_id = ?').all(mesId);
-  const valorPorUnidadeLuz = {}; // { relogio: valor_por_unidade }
+  const valorPorUnidadeLuz = {};
   for (const r of relogios) {
     const casasNoRelogio = lancs.filter(l => l.relogio_luz === r.relogio && !l.vazia);
     const somaUnidades = casasNoRelogio.reduce((s, l) => s + (l.unidades_luz || 0), 0);
@@ -87,7 +101,6 @@ function recalcularMes(mesId) {
 
 /**
  * Garante que o mês existe e tem 1 lançamento por casa ativa.
- * Se já existir, não duplica nada.
  */
 function garantirMes(ano, mes) {
   let m = db.prepare('SELECT * FROM meses WHERE ano = ? AND mes = ?').get(ano, mes);
@@ -97,7 +110,6 @@ function garantirMes(ano, mes) {
     log(`[CALC] Mês criado: ${ano}-${mes} (id=${m.id})`);
   }
 
-  // Cria lançamentos faltantes (snapshot do inquilino e aluguel atuais).
   const casas = db.prepare('SELECT * FROM casas WHERE ativa = 1 ORDER BY numero').all();
   const ins = db.prepare(`
     INSERT OR IGNORE INTO lancamentos
@@ -112,7 +124,6 @@ function garantirMes(ano, mes) {
   });
   tx();
 
-  // Garante que há 1 linha por relógio_luz único usado pelas casas.
   const relogios = [...new Set(casas.map(c => c.relogio_luz))];
   const insR = db.prepare(`
     INSERT OR IGNORE INTO contas_luz_relogio (mes_id, relogio, valor_total)
@@ -122,6 +133,50 @@ function garantirMes(ano, mes) {
   txR();
 
   return m;
+}
+
+/**
+ * Retorna true se o lançamento está totalmente pago
+ * (todos os 4 flags=1 OU casa vazia).
+ */
+function totalmentePago(l) {
+  if (l.vazia) return true;
+  // Ignora flags onde o valor é 0 (não há o que pagar nesse item).
+  const itens = [
+    { val: l.agua_valor    || 0, pg: !!l.agua_pago },
+    { val: l.luz_valor     || 0, pg: !!l.luz_pago },
+    { val: l.outros_valor  || 0, pg: !!l.outros_pago },
+    { val: l.aluguel_valor || 0, pg: !!l.aluguel_pago },
+  ];
+  return itens.every(i => i.val <= 0 || i.pg);
+}
+
+/**
+ * Atualiza pago_em de UM lançamento conforme os 4 flags.
+ * Chamado depois que algum flag *_pago muda.
+ */
+function atualizarPagoEm(lancId) {
+  const l = db.prepare('SELECT * FROM lancamentos WHERE id = ?').get(lancId);
+  if (!l) return;
+  const tudoPago = totalmentePago(l);
+  if (tudoPago && !l.pago_em) {
+    db.prepare('UPDATE lancamentos SET pago_em = ? WHERE id = ?').run(hojeISO(), lancId);
+  } else if (!tudoPago && l.pago_em) {
+    db.prepare('UPDATE lancamentos SET pago_em = NULL WHERE id = ?').run(lancId);
+  }
+}
+
+/**
+ * Marca todos os 4 flags de uma casa de uma vez (toggle "Pago tudo").
+ */
+function marcarTudoPago(lancId, pago) {
+  const v = pago ? 1 : 0;
+  db.prepare(`
+    UPDATE lancamentos
+       SET agua_pago = ?, luz_pago = ?, outros_pago = ?, aluguel_pago = ?,
+           pago_em = ?
+     WHERE id = ?
+  `).run(v, v, v, v, pago ? hojeISO() : null, lancId);
 }
 
 /**
@@ -137,11 +192,17 @@ function carregarMes(ano, mes) {
            c.relogio_luz   AS casa_relogio_luz,
            c.unidades_luz  AS casa_unidades_luz,
            c.unidades_agua AS casa_unidades_agua,
-           c.aluguel_padrao
+           c.aluguel_padrao,
+           c.telefone      AS casa_telefone
       FROM lancamentos l JOIN casas c ON c.id = l.casa_id
      WHERE l.mes_id = ?
      ORDER BY c.numero
   `).all(m.id);
+
+  // Anexa flag computada `tudo_pago` em cada lançamento.
+  for (const l of lancs) {
+    l.tudo_pago = totalmentePago(l) ? 1 : 0;
+  }
 
   const relogios = db.prepare(`
     SELECT * FROM contas_luz_relogio WHERE mes_id = ? ORDER BY relogio
@@ -155,7 +216,6 @@ function carregarMes(ano, mes) {
     SELECT * FROM pagamentos_pais WHERE mes_id = ?
   `).all(m.id);
 
-  // Totais derivados.
   const totalAluguelRecebido = lancs
     .filter(l => l.aluguel_pago)
     .reduce((s, l) => s + (l.aluguel_valor || 0), 0);
@@ -168,6 +228,11 @@ function carregarMes(ano, mes) {
 
   const brutoPai = round2(totalAluguelRecebido * 0.5);
   const brutoMae = round2(totalAluguelRecebido * 0.5);
+
+  // Stats de pagamento das casas
+  const casasComCobranca = lancs.filter(l => !l.vazia);
+  const casasPagas = casasComCobranca.filter(l => l.tudo_pago);
+  const casasDevendo = casasComCobranca.filter(l => !l.tudo_pago);
 
   return {
     mes: m,
@@ -185,6 +250,9 @@ function carregarMes(ano, mes) {
       desconto_mae: round2(descMae),
       liquido_pai: round2(brutoPai - descPai),
       liquido_mae: round2(brutoMae - descMae),
+      casas_total:    casasComCobranca.length,
+      casas_pagas:    casasPagas.length,
+      casas_devendo:  casasDevendo.length,
     },
   };
 }
@@ -202,4 +270,8 @@ module.exports = {
   carregarMes,
   nomeMes,
   round2,
+  hojeISO,
+  totalmentePago,
+  atualizarPagoEm,
+  marcarTudoPago,
 };

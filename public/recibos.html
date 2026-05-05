@@ -5,15 +5,18 @@
 <title>Recibos — Controle de Aluguel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/css/style.css">
+<!-- html2canvas: roda 100% no browser, gera PNG do recibo pra mandar no WhatsApp -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
 
 <header>
   <h1>🏠 Controle de Aluguel</h1>
   <nav>
-    <a href="/">Mês atual</a>
-    <a href="/recibos" class="active">Recibos</a>
-    <a href="/casas">Casas</a>
+    <a href="/">📅 Mês atual</a>
+    <a href="/recibos" class="active">📄 Recibos</a>
+    <a href="/devedores">⚠️ Devedores</a>
+    <a href="/casas">🏘️ Casas</a>
   </nav>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
@@ -55,12 +58,16 @@
 
 <!-- Modal mensagem WhatsApp -->
 <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
-  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:500px;width:100%">
-    <h3 style="margin:0 0 12px">Mensagem para WhatsApp</h3>
+  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:520px;width:100%">
+    <h3 style="margin:0 0 12px" id="modal-titulo">Mensagem para WhatsApp</h3>
     <textarea id="modal-text" style="width:100%;min-height:240px;background:#0a0c11;color:var(--txt);border:1px solid var(--border);padding:12px;border-radius:6px;font-family:inherit;font-size:14px"></textarea>
-    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+    <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+      <strong>Dica:</strong> use <em>Abrir WhatsApp</em> pra mandar texto com 1 clique, ou <em>Baixar imagem</em> pra anexar a foto do recibo.
+    </p>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">
       <button class="ghost" onclick="fecharModal()">Fechar</button>
-      <button class="primary" onclick="copiarTexto()">📋 Copiar</button>
+      <button class="primary" onclick="copiarTexto()">📋 Copiar texto</button>
+      <button class="primary" id="modal-btn-wa" style="background:#25d366;color:#fff" onclick="abrirWhatsApp()">💬 Abrir WhatsApp</button>
     </div>
   </div>
 </div>
@@ -88,51 +95,148 @@ async function api(method, url) {
   carregar();
 })();
 
+window._recibos = [];
+
 async function carregar() {
   const ano = document.getElementById('sel-ano').value;
   const mes = document.getElementById('sel-mes').value;
   const data = await api('GET', `/api/recibos/${ano}/${mes}`);
-  document.getElementById('grid').innerHTML = data.recibos.map(r => `
-    <div class="recibo-card">
-      <div class="nome">${escapeHtml(r.inquilino || '—')}</div>
-      <div class="ref">Ref.: ${escapeHtml(r.ref)}</div>
-      <div class="linha agua">
-        <div class="lbl">ÁGUA:</div><div class="val">${brl(r.agua)}</div>
-      </div>
-      <div class="linha luz">
-        <div class="lbl">LUZ:</div><div class="val">${brl(r.luz)}</div>
-      </div>
-      <div class="linha outros">
-        <div class="lbl">${escapeHtml(r.outros_descricao || 'OUTROS')}:</div>
-        <div class="val">${r.outros > 0 ? brl(r.outros) : '—'}</div>
-      </div>
-      <div class="linha total">
-        <div class="lbl">TOTAL:</div><div class="val">${brl(r.total)}</div>
-      </div>
-      <div class="actions">
-        <button onclick="abrirMensagem(${r.casa})">💬 Texto WhatsApp</button>
-      </div>
-    </div>
-  `).join('');
+  window._recibos = data.recibos;
 
-  // Guarda mensagens pra reaproveitar
-  window._mensagens = {};
-  data.recibos.forEach(r => { window._mensagens[r.casa] = r.mensagem_whatsapp; });
+  document.getElementById('grid').innerHTML = data.recibos.map((r, i) => {
+    if (r.vazia) {
+      return `
+        <div class="recibo-card" style="opacity:.6">
+          <div class="nome">CASA ${r.casa_str} — VAZIA <span class="casa-tag" style="background:#888">vazia</span></div>
+          <div class="ref">Sem inquilino em ${escapeHtml(r.ref)}</div>
+        </div>
+      `;
+    }
+
+    const venc = [];
+    if (r.vencimento_agua) venc.push(`💧 vence dia ${r.vencimento_agua}`);
+    if (r.vencimento_luz)  venc.push(`💡 vence dia ${r.vencimento_luz}`);
+
+    const linhasItens = [];
+    if (r.agua > 0) linhasItens.push(`
+      <div class="linha agua">
+        <div class="ico">💧</div>
+        <div class="lbl">ÁGUA</div>
+        <div class="val">${brl(r.agua)}</div>
+      </div>`);
+    if (r.luz > 0) linhasItens.push(`
+      <div class="linha luz">
+        <div class="ico">💡</div>
+        <div class="lbl">LUZ</div>
+        <div class="val">${brl(r.luz)}</div>
+      </div>`);
+    if (r.outros > 0) linhasItens.push(`
+      <div class="linha outros">
+        <div class="ico">📦</div>
+        <div class="lbl">${escapeHtml((r.outros_descricao || 'OUTROS').toUpperCase())}</div>
+        <div class="val">${brl(r.outros)}</div>
+      </div>`);
+
+    const status = r.tudo_pago
+      ? `<div class="status-tag pago">✅ PAGO${r.pago_em ? ' em ' + formatDataBR(r.pago_em) : ''}</div>`
+      : `<div class="status-tag devendo">⏳ EM ABERTO</div>`;
+
+    return `
+      <div class="recibo-card" id="recibo-${r.casa}">
+        <div class="nome">${escapeHtml(r.inquilino || '—')} <span class="casa-tag">CASA ${r.casa_str}</span></div>
+        <div class="ref">${escapeHtml(r.ref)}</div>
+        ${venc.length ? `<div class="vencimentos">${venc.map(v => `<span>${v}</span>`).join('')}</div>` : ''}
+        <div class="linhas">
+          ${linhasItens.join('') || '<div class="linha"><div class="ico">—</div><div class="lbl">SEM COBRANÇA</div><div class="val">—</div></div>'}
+          <div class="linha total">
+            <div class="ico">💰</div>
+            <div class="lbl">TOTAL</div>
+            <div class="val">${brl(r.total)}</div>
+          </div>
+        </div>
+        ${status}
+        <div class="actions">
+          <button class="btn-img" onclick="baixarImagem(${r.casa})" title="Baixar como PNG pra mandar foto">🖼️ Imagem</button>
+          <button class="btn-wa" onclick="abrirMensagem(${r.casa})" title="Texto e/ou link wa.me">💬 WhatsApp</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
+function formatDataBR(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+let _modalRecibo = null;
 function abrirMensagem(casaNum) {
-  document.getElementById('modal-text').value = window._mensagens[casaNum] || '';
+  const r = window._recibos.find(x => x.casa === casaNum);
+  if (!r) return;
+  _modalRecibo = r;
+  document.getElementById('modal-titulo').textContent = `WhatsApp — ${r.inquilino} (Casa ${r.casa_str})`;
+  document.getElementById('modal-text').value = r.mensagem_whatsapp || '';
+  // Habilita/desabilita botão "Abrir WhatsApp" baseado em ter telefone
+  const btn = document.getElementById('modal-btn-wa');
+  btn.style.opacity = r.telefone ? '1' : '.6';
+  btn.title = r.telefone ? `Abrir conversa com ${r.telefone}` : 'Sem telefone cadastrado — vai abrir só com a mensagem pra escolher contato';
   document.getElementById('modal').style.display = 'flex';
 }
 function fecharModal() {
   document.getElementById('modal').style.display = 'none';
+  _modalRecibo = null;
 }
 function copiarTexto() {
   const t = document.getElementById('modal-text');
   t.select();
   document.execCommand('copy');
-  alert('Copiado! Cole no WhatsApp.');
+  alert('✅ Copiado! Cole no WhatsApp.');
 }
+function abrirWhatsApp() {
+  if (!_modalRecibo) return;
+  const texto = document.getElementById('modal-text').value;
+  const tel = (_modalRecibo.telefone || '').replace(/\D/g, '');
+  // Se não tem código do país, prefixa 55 (Brasil)
+  const telFinal = tel && !tel.startsWith('55') && tel.length >= 10 ? '55' + tel : tel;
+  const url = telFinal
+    ? `https://wa.me/${telFinal}?text=${encodeURIComponent(texto)}`
+    : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  window.open(url, '_blank');
+}
+
+async function baixarImagem(casaNum) {
+  const card = document.getElementById('recibo-' + casaNum);
+  if (!card) return;
+  // Esconde os botões antes de capturar
+  const actions = card.querySelector('.actions');
+  if (actions) actions.style.visibility = 'hidden';
+  try {
+    const canvas = await html2canvas(card, {
+      backgroundColor: '#ffffff',
+      scale: 2, // alta resolução
+      logging: false,
+    });
+    const r = window._recibos.find(x => x.casa === casaNum);
+    const nome = (r?.inquilino || 'casa').replace(/[^a-zA-Z0-9]/g, '_');
+    const ref = (r?.ref || '').replace('/', '_');
+    const link = document.createElement('a');
+    link.download = `recibo_casa${r?.casa_str || casaNum}_${nome}_${ref}.png`;
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (e) {
+    alert('Erro ao gerar imagem: ' + e.message);
+  } finally {
+    if (actions) actions.style.visibility = '';
+  }
+}
+
+// Fecha modal ao clicar fora
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') fecharModal();
+});
 </script>
 
 </body>

@@ -11,9 +11,10 @@
 <header>
   <h1>🏠 Controle de Aluguel</h1>
   <nav>
-    <a href="/" class="active">Mês atual</a>
-    <a href="/recibos">Recibos</a>
-    <a href="/casas">Casas</a>
+    <a href="/" class="active">📅 Mês atual</a>
+    <a href="/recibos">📄 Recibos</a>
+    <a href="/devedores">⚠️ Devedores</a>
+    <a href="/casas">🏘️ Casas</a>
   </nav>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
@@ -33,18 +34,12 @@
       <div class="field">
         <label>Mês</label>
         <select id="sel-mes">
-          <option value="1">Janeiro</option>
-          <option value="2">Fevereiro</option>
-          <option value="3">Março</option>
-          <option value="4">Abril</option>
-          <option value="5">Maio</option>
-          <option value="6">Junho</option>
-          <option value="7">Julho</option>
-          <option value="8">Agosto</option>
-          <option value="9">Setembro</option>
-          <option value="10">Outubro</option>
-          <option value="11">Novembro</option>
-          <option value="12">Dezembro</option>
+          <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+          <option value="3">Março</option><option value="4">Abril</option>
+          <option value="5">Maio</option><option value="6">Junho</option>
+          <option value="7">Julho</option><option value="8">Agosto</option>
+          <option value="9">Setembro</option><option value="10">Outubro</option>
+          <option value="11">Novembro</option><option value="12">Dezembro</option>
         </select>
       </div>
       <div class="field">
@@ -58,29 +53,67 @@
     </div>
   </div>
 
-  <!-- ─────────── HEADER DO MÊS (água + relógios de luz) ─────────── -->
+  <!-- ─────────── STATS DO MÊS ─────────── -->
+  <div class="grid stats-mes" style="margin-bottom:16px">
+    <div class="stat stat-pago">
+      <div class="label">Casas pagas</div>
+      <div class="value" id="s-pagas" style="color:var(--accent)">—</div>
+      <div class="sub" id="s-pagas-sub"></div>
+    </div>
+    <div class="stat stat-devendo">
+      <div class="label">Devendo</div>
+      <div class="value" id="s-devendo" style="color:var(--err)">—</div>
+      <div class="sub" id="s-devendo-sub"></div>
+    </div>
+    <div class="stat stat-agua">
+      <div class="label">💧 Água total</div>
+      <div class="value" id="s-agua" style="color:var(--c-agua)">—</div>
+    </div>
+    <div class="stat stat-luz">
+      <div class="label">💡 Luz total</div>
+      <div class="value" id="s-luz" style="color:var(--c-luz)">—</div>
+    </div>
+    <div class="stat stat-aluguel">
+      <div class="label">🏠 Aluguel recebido</div>
+      <div class="value" id="s-aluguel" style="color:var(--c-aluguel)">—</div>
+    </div>
+  </div>
+
+  <!-- ─────────── HEADER DO MÊS (água + relógios + vencimentos) ─────────── -->
   <div class="card" id="card-header">
     <h2>Contas do mês <span id="ref-mes" class="right"></span></h2>
 
     <div class="field-inline">
-      <div class="field">
-        <label>Conta de água — total (R$)</label>
+      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
+        <label style="color:var(--c-agua)">💧 Conta de água — total (R$)</label>
         <input id="agua-total" type="number" step="0.01" min="0">
       </div>
-      <div class="field">
-        <label>Divisor água</label>
+      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
+        <label style="color:var(--c-agua)">💧 Divisor</label>
         <input id="agua-divisor" type="number" step="0.5" min="1">
       </div>
-      <div class="field">
+      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
+        <label style="color:var(--c-agua)">💧 Vence dia (1-31)</label>
+        <input id="venc-agua" type="number" min="1" max="31" placeholder="ex: 10">
+      </div>
+      <div class="field" style="flex:2">
         <label>&nbsp;</label>
-        <span id="agua-por-unidade" style="display:inline-block;padding:9px 0;color:var(--muted);font-size:13px"></span>
+        <span id="agua-por-unidade" style="display:inline-block;padding:9px 0;color:var(--c-agua);font-size:13px;font-weight:600"></span>
       </div>
     </div>
 
-    <div id="relogios-area" style="margin-top:8px"></div>
+    <div id="relogios-area" style="margin-top:10px"></div>
 
-    <div style="margin-top:8px">
+    <div class="field-inline" style="margin-top:8px">
+      <div class="field" style="border-left:3px solid var(--c-luz);padding-left:10px">
+        <label style="color:var(--c-luz)">💡 Luz vence dia (1-31)</label>
+        <input id="venc-luz" type="number" min="1" max="31" placeholder="ex: 15">
+      </div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="primary" onclick="salvarHeader()">💾 Salvar e recalcular</button>
+      <button class="danger" onclick="limparDadosMes()" style="padding:9px 16px;font-size:13px">🗑️ Limpar dados do mês</button>
       <span id="header-toast" class="toast"></span>
     </div>
   </div>
@@ -89,52 +122,53 @@
   <div class="card">
     <h2>Lançamentos por casa</h2>
     <div style="overflow-x:auto">
-      <table id="tbl-lancamentos">
+      <table class="tbl-lanc" id="tbl-lancamentos">
         <thead>
           <tr>
             <th>Casa</th>
             <th style="min-width:140px">Inquilino</th>
-            <th style="text-align:right">Água</th>
-            <th>✓</th>
-            <th style="text-align:right">Luz</th>
-            <th>✓</th>
-            <th style="min-width:160px">Outros</th>
-            <th style="text-align:right">R$</th>
-            <th>✓</th>
-            <th style="text-align:right">Aluguel</th>
-            <th>✓</th>
-            <th style="text-align:right">Total</th>
+            <th class="col-agua" style="text-align:right">💧 Água</th>
+            <th class="col-agua">✓</th>
+            <th class="col-luz" style="text-align:right">💡 Luz</th>
+            <th class="col-luz">✓</th>
+            <th class="col-outros" style="min-width:120px">📦 Outros</th>
+            <th class="col-outros" style="text-align:right">R$</th>
+            <th class="col-outros">✓</th>
+            <th class="col-aluguel" style="text-align:right">🏠 Aluguel</th>
+            <th class="col-aluguel">✓</th>
+            <th class="col-total" style="text-align:right">💰 Total</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody id="tbody-lanc"></tbody>
       </table>
     </div>
     <p style="color:var(--muted);font-size:12px;margin-top:10px">
-      Edite valores direto na célula e saia do campo (Tab) — salva sozinho.
-      Marque o ✓ quando o inquilino pagar. Casa <em>vazia</em> não entra na divisão da luz.
+      Edite valores direto na célula — salva ao sair do campo (Tab).
+      Cada ✓ é um item. O botão <strong>Status</strong> à direita marca/desmarca <em>tudo</em> de uma vez.
     </p>
   </div>
 
   <!-- ─────────── PAIS (split 50/50 + descontos) ─────────── -->
   <div class="card">
-    <h2>Repasse — pai e mãe (50/50 do aluguel recebido)</h2>
+    <h2>👨👩 Repasse pai e mãe (50/50 do aluguel recebido)</h2>
 
     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))">
-      <div class="stat">
-        <div class="label">Aluguel recebido (mês)</div>
-        <div class="value" id="t-aluguel-recebido">—</div>
+      <div class="stat stat-aluguel">
+        <div class="label">Aluguel recebido</div>
+        <div class="value" id="t-aluguel-recebido" style="color:var(--c-aluguel)">—</div>
       </div>
       <div class="stat">
-        <div class="label">Pai — bruto 50%</div>
+        <div class="label">👨 Pai — bruto 50%</div>
         <div class="value" id="t-bruto-pai" style="color:var(--info)">—</div>
       </div>
       <div class="stat">
-        <div class="label">Mãe — bruto 50%</div>
+        <div class="label">👩 Mãe — bruto 50%</div>
         <div class="value" id="t-bruto-mae" style="color:var(--info)">—</div>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px" id="grid-pais">
       <div id="bloco-pai"></div>
       <div id="bloco-mae"></div>
     </div>
@@ -144,7 +178,7 @@
 
 <script>
 const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-let mesAtual = null;   // objeto { mes, lancamentos, relogios, descontos, pagamentos, totais }
+let mesAtual = null;
 
 function brl(n) {
   return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -155,7 +189,6 @@ function toast(elId, msg, ok) {
   el.textContent = msg;
   setTimeout(() => { el.className = 'toast'; el.textContent = ''; }, 3000);
 }
-
 async function api(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
@@ -163,8 +196,10 @@ async function api(method, url, body) {
   if (r.status === 401) { location.href = '/login'; throw new Error('Não autenticado'); }
   return r.json();
 }
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
 
-// ──────── Inicializa o seletor com mês corrente ────────
 (function initSeletor() {
   const hoje = new Date();
   document.getElementById('sel-ano').value = hoje.getFullYear();
@@ -181,20 +216,34 @@ async function carregarMes() {
   mesAtual = data;
   document.getElementById('ref-mes').textContent = `${NOMES_MES[mes]} / ${ano}`;
   renderHeader(data);
+  renderStats(data);
   renderLancamentos(data);
   renderPais(data);
+}
+
+function renderStats(data) {
+  const t = data.totais;
+  document.getElementById('s-pagas').textContent   = `${t.casas_pagas}/${t.casas_total}`;
+  document.getElementById('s-pagas-sub').textContent = t.casas_total ? `${Math.round(100 * t.casas_pagas / t.casas_total)}% quitado` : '';
+  document.getElementById('s-devendo').textContent = t.casas_devendo;
+  document.getElementById('s-devendo-sub').textContent = t.casas_devendo ? 'casas com pendência' : 'tudo em dia 🎉';
+  document.getElementById('s-agua').textContent    = brl(t.agua_cobrado);
+  document.getElementById('s-luz').textContent     = brl(t.luz_cobrado);
+  document.getElementById('s-aluguel').textContent = brl(t.aluguel_recebido);
 }
 
 function renderHeader(data) {
   document.getElementById('agua-total').value   = data.mes.agua_total   || '';
   document.getElementById('agua-divisor').value = data.mes.agua_divisor || 10;
+  document.getElementById('venc-agua').value    = data.mes.vencimento_agua || '';
+  document.getElementById('venc-luz').value     = data.mes.vencimento_luz  || '';
   atualizarPorUnidadeAgua();
 
   const area = document.getElementById('relogios-area');
   const html = data.relogios.map(r => `
-    <div class="field-inline" data-relogio="${r.relogio}">
+    <div class="field-inline" data-relogio="${r.relogio}" style="border-left:3px solid var(--c-luz);padding-left:10px;margin-bottom:10px">
       <div class="field">
-        <label>Conta de luz — relógio ${r.relogio} (R$)</label>
+        <label style="color:var(--c-luz)">💡 Conta luz — relógio ${r.relogio} (R$)</label>
         <input class="rel-valor" type="number" step="0.01" min="0" value="${r.valor_total || ''}">
       </div>
       <div class="field" style="flex:2">
@@ -205,7 +254,7 @@ function renderHeader(data) {
       </div>
     </div>
   `).join('');
-  area.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Nenhum relógio configurado. Configure os relógios na aba <a href="/casas" style="color:var(--accent)">Casas</a>.</p>';
+  area.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Configure os relógios na aba <a href="/casas" style="color:var(--accent)">Casas</a>.</p>';
 }
 
 function atualizarPorUnidadeAgua() {
@@ -218,10 +267,27 @@ function atualizarPorUnidadeAgua() {
 document.getElementById('agua-total').addEventListener('input', atualizarPorUnidadeAgua);
 document.getElementById('agua-divisor').addEventListener('input', atualizarPorUnidadeAgua);
 
+async function limparDadosMes() {
+  if (!mesAtual) return;
+  const ref = `${NOMES_MES[mesAtual.mes.mes]}/${mesAtual.mes.ano}`;
+  // Confirmação dupla pra evitar acidente
+  if (!confirm(`⚠️ ATENÇÃO\n\nIsso vai ZERAR TODOS OS DADOS do mês ${ref}:\n\n• Conta de água (total, divisor, vencimento)\n• Contas de luz por relógio + vencimento\n• Valores calculados de água e luz das casas\n• Item "Outros" e seu valor\n• TODOS os marcadores de pago/não-pago\n• Descontos e pagamentos do pai/mãe\n\nMantém: inquilinos atuais e o aluguel padrão de cada casa.\n\nTem certeza?`)) return;
+  if (!confirm(`Última confirmação: limpar mesmo o mês ${ref}?\n\nNão tem como desfazer.`)) return;
+  try {
+    await api('POST', `/api/mes/${mesAtual.mes.id}/limpar`);
+    await carregarMes();
+    toast('header-toast', `🗑️ Dados de ${ref} foram limpos`, true);
+  } catch (e) {
+    toast('header-toast', '❌ ' + e.message, false);
+  }
+}
+
 async function salvarHeader() {
   if (!mesAtual) return;
   const aguaTotal = parseFloat(document.getElementById('agua-total').value) || 0;
   const aguaDivisor = parseFloat(document.getElementById('agua-divisor').value) || 10;
+  const vAgua = parseInt(document.getElementById('venc-agua').value, 10);
+  const vLuz  = parseInt(document.getElementById('venc-luz').value, 10);
   const relogios = [...document.querySelectorAll('#relogios-area [data-relogio]')].map(el => ({
     relogio: parseInt(el.dataset.relogio, 10),
     valor_total: parseFloat(el.querySelector('.rel-valor').value) || 0,
@@ -230,6 +296,8 @@ async function salvarHeader() {
     await api('PUT', `/api/mes/${mesAtual.mes.id}/header`, {
       agua_total: aguaTotal,
       agua_divisor: aguaDivisor,
+      vencimento_agua: Number.isFinite(vAgua) && vAgua > 0 ? vAgua : null,
+      vencimento_luz:  Number.isFinite(vLuz)  && vLuz  > 0 ? vLuz  : null,
       relogios,
     });
     await carregarMes();
@@ -239,34 +307,52 @@ async function salvarHeader() {
   }
 }
 
+function statusClass(l) {
+  if (l.vazia) return '';
+  if (l.tudo_pago) return 'row-pago';
+  // Algum item pago mas não todos = parcial
+  const pagos = (l.agua_pago?1:0) + (l.luz_pago?1:0) + (l.outros_pago?1:0) + (l.aluguel_pago?1:0);
+  const itens = (l.agua_valor>0?1:0) + (l.luz_valor>0?1:0) + (l.outros_valor>0?1:0) + (l.aluguel_valor>0?1:0);
+  if (pagos > 0 && pagos < itens) return 'row-parcial';
+  return 'row-devendo';
+}
+
 function renderLancamentos(data) {
   const tbody = document.getElementById('tbody-lanc');
   tbody.innerHTML = data.lancamentos.map(l => {
     const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0) + (l.aluguel_valor || 0);
+    const cls = (l.vazia ? 'linha-vazia' : statusClass(l));
+    const casaStr = String(l.casa_numero).padStart(2, '0');
+    const tudoPago = !!l.tudo_pago;
+    const togBtn = l.vazia
+      ? '<span style="color:var(--muted);font-size:11px">—</span>'
+      : `<span class="toggle-pago ${tudoPago ? 'is-pago' : ''}" onclick="togglePagoTudo(${l.id}, ${tudoPago ? 0 : 1})">${tudoPago ? 'PAGO' : 'PENDENTE'}</span>`;
     return `
-      <tr data-id="${l.id}" class="${l.vazia ? 'linha-vazia' : ''}">
-        <td>${l.casa_numero}</td>
+      <tr data-id="${l.id}" class="${cls}">
+        <td><span class="casa-num">${casaStr}</span></td>
         <td>
           <input type="text" value="${escapeHtml(l.inquilino || '')}" data-field="inquilino"
                  placeholder="(vazia)" onblur="onCellChange(this)">
         </td>
-        <td><input type="number" step="0.01" value="${l.agua_valor || 0}" data-field="agua_valor" onblur="onCellChange(this)"></td>
-        <td><input type="checkbox" data-field="agua_pago" ${l.agua_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td><input type="number" step="0.01" value="${l.luz_valor || 0}" data-field="luz_valor" onblur="onCellChange(this)"></td>
-        <td><input type="checkbox" data-field="luz_pago" ${l.luz_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td><input type="text" value="${escapeHtml(l.outros_descricao || '')}" data-field="outros_descricao" onblur="onCellChange(this)" placeholder="—"></td>
-        <td><input type="number" step="0.01" value="${l.outros_valor || 0}" data-field="outros_valor" onblur="onCellChange(this)"></td>
-        <td><input type="checkbox" data-field="outros_pago" ${l.outros_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td><input type="number" step="0.01" value="${l.aluguel_valor || 0}" data-field="aluguel_valor" onblur="onCellChange(this)"></td>
-        <td><input type="checkbox" data-field="aluguel_pago" ${l.aluguel_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td class="num">${brl(total)}</td>
+        <td class="cel-agua"><input type="number" step="0.01" value="${l.agua_valor || 0}" data-field="agua_valor" onblur="onCellChange(this)"></td>
+        <td class="cel-agua"><input type="checkbox" data-field="agua_pago" ${l.agua_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td class="cel-luz"><input type="number" step="0.01" value="${l.luz_valor || 0}" data-field="luz_valor" onblur="onCellChange(this)"></td>
+        <td class="cel-luz"><input type="checkbox" data-field="luz_pago" ${l.luz_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td class="cel-outros"><input type="text" value="${escapeHtml(l.outros_descricao || '')}" data-field="outros_descricao" onblur="onCellChange(this)" placeholder="—"></td>
+        <td class="cel-outros"><input type="number" step="0.01" value="${l.outros_valor || 0}" data-field="outros_valor" onblur="onCellChange(this)"></td>
+        <td class="cel-outros"><input type="checkbox" data-field="outros_pago" ${l.outros_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td class="cel-aluguel"><input type="number" step="0.01" value="${l.aluguel_valor || 0}" data-field="aluguel_valor" onblur="onCellChange(this)"></td>
+        <td class="cel-aluguel"><input type="checkbox" data-field="aluguel_pago" ${l.aluguel_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
+        <td class="cel-total num">${brl(total)}</td>
+        <td>${togBtn}</td>
       </tr>
     `;
   }).join('');
 }
 
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+async function togglePagoTudo(lancId, pago) {
+  await api('PUT', `/api/lancamento/${lancId}/tudo-pago`, { pago: !!pago });
+  await carregarMes();
 }
 
 async function onCellChange(input) {
@@ -278,7 +364,6 @@ async function onCellChange(input) {
   else if (input.type === 'number') value = parseFloat(input.value) || 0;
   else value = input.value;
 
-  // Se o inquilino virou vazio (texto em branco), marca vazia=1 implicitamente.
   const body = { [field]: value };
   if (field === 'inquilino') {
     body.vazia = value && String(value).trim() ? 0 : 1;
@@ -286,17 +371,8 @@ async function onCellChange(input) {
 
   try {
     await api('PUT', `/api/lancamento/${id}`, body);
-    // Se mexeu em algo que afeta cálculos, recarrega o mês inteiro.
-    if (field === 'inquilino' || field === 'aluguel_pago') {
-      await carregarMes();
-    } else {
-      // Atualiza só a coluna total da linha.
-      const ag = parseFloat(tr.querySelector('[data-field=agua_valor]').value) || 0;
-      const lz = parseFloat(tr.querySelector('[data-field=luz_valor]').value) || 0;
-      const ot = parseFloat(tr.querySelector('[data-field=outros_valor]').value) || 0;
-      const al = parseFloat(tr.querySelector('[data-field=aluguel_valor]').value) || 0;
-      tr.querySelector('td.num').textContent = brl(ag + lz + ot + al);
-    }
+    // Sempre recarrega - precisamos atualizar status visual e stats
+    await carregarMes();
   } catch (e) {
     alert('Erro ao salvar: ' + e.message);
   }
@@ -328,9 +404,11 @@ function blocoPai(dest, titulo, bruto, desc, liquido, descontos, pagamento) {
     </tr>
   `).join('') || `<tr><td colspan="3" style="color:var(--muted);font-size:12px">Sem descontos.</td></tr>`;
 
+  const corDest = dest === 'pai' ? 'var(--info)' : '#ff8bc1';
+
   return `
-    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--panel-2)">
-      <h3 style="margin:0 0 10px;font-size:14px">${titulo}</h3>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--panel-2);border-left:4px solid ${corDest}">
+      <h3 style="margin:0 0 10px;font-size:15px">${titulo}</h3>
 
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
         <span>Bruto (50%)</span><span>${brl(bruto)}</span>
@@ -339,8 +417,8 @@ function blocoPai(dest, titulo, bruto, desc, liquido, descontos, pagamento) {
         <span>− Descontos</span><span>${brl(desc)}</span>
       </div>
       <hr style="border:0;border-top:1px solid var(--border);margin:6px 0">
-      <div style="display:flex;justify-content:space-between;font-weight:600;font-size:16px;color:var(--accent)">
-        <span>Líquido</span><span>${brl(liquido)}</span>
+      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:18px;color:var(--accent)">
+        <span>💰 Líquido</span><span>${brl(liquido)}</span>
       </div>
 
       <table style="margin-top:14px">${linhas}</table>
@@ -359,7 +437,7 @@ function blocoPai(dest, titulo, bruto, desc, liquido, descontos, pagamento) {
 
       <label style="display:flex;align-items:center;gap:8px;margin-top:14px;text-transform:none;font-size:14px;color:var(--txt)">
         <input type="checkbox" ${pagamento.pago ? 'checked' : ''} onchange="marcarPagoPai('${dest}', this.checked)">
-        Pago${pagamento.data_pagamento ? ' em ' + pagamento.data_pagamento : ''}
+        ${pagamento.pago ? '✅ Pago' : '⏳ Pendente'}${pagamento.data_pagamento ? ' em ' + pagamento.data_pagamento : ''}
       </label>
     </div>
   `;
@@ -383,7 +461,6 @@ async function marcarPagoPai(dest, pago) {
   await carregarMes();
 }
 
-// Carrega ao abrir
 carregarMes();
 </script>
 

@@ -11,9 +11,10 @@
 <header>
   <h1>🏠 Controle de Aluguel</h1>
   <nav>
-    <a href="/">Mês atual</a>
-    <a href="/recibos">Recibos</a>
-    <a href="/casas" class="active">Casas</a>
+    <a href="/">📅 Mês atual</a>
+    <a href="/recibos">📄 Recibos</a>
+    <a href="/devedores">⚠️ Devedores</a>
+    <a href="/casas" class="active">🏘️ Casas</a>
   </nav>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
@@ -37,6 +38,7 @@
           <tr>
             <th>Nº</th>
             <th>Inquilino atual</th>
+            <th>📞 Telefone</th>
             <th>Aluguel padrão</th>
             <th>Relógio luz</th>
             <th>Unid. luz</th>
@@ -56,6 +58,7 @@
     <div class="field-inline">
       <div class="field" style="flex:0 0 70px"><label>Nº</label><input id="nv-numero" type="number" min="1"></div>
       <div class="field" style="flex:2"><label>Inquilino</label><input id="nv-inquilino" type="text"></div>
+      <div class="field"><label>📞 Telefone</label><input id="nv-telefone" type="tel" placeholder="11987654321"></div>
       <div class="field"><label>Aluguel R$</label><input id="nv-aluguel" type="number" step="0.01" value="0"></div>
       <div class="field"><label>Relógio luz</label><input id="nv-relogio" type="number" min="1" value="1"></div>
       <div class="field"><label>Unid. luz</label><input id="nv-uluz" type="number" step="0.5" value="1"></div>
@@ -91,6 +94,7 @@ async function carregar() {
     <tr data-id="${c.id}">
       <td><input type="number" value="${c.numero}" data-field="numero" onblur="salvar(this)" style="width:60px"></td>
       <td><input type="text" value="${escapeHtml(c.inquilino || '')}" data-field="inquilino" onblur="salvar(this)" placeholder="(sem inquilino)"></td>
+      <td><input type="tel" value="${escapeHtml(c.telefone || '')}" data-field="telefone" onblur="salvar(this)" placeholder="11987654321" style="width:120px"></td>
       <td><input type="number" step="0.01" value="${c.aluguel_padrao}" data-field="aluguel_padrao" onblur="salvar(this)" style="width:90px"></td>
       <td><input type="number" min="1" value="${c.relogio_luz}" data-field="relogio_luz" onblur="salvar(this)" style="width:60px"></td>
       <td><input type="number" step="0.5" value="${c.unidades_luz}" data-field="unidades_luz" onblur="salvar(this)" style="width:60px"></td>
@@ -118,6 +122,7 @@ async function adicionar() {
   const body = {
     numero:         parseInt(document.getElementById('nv-numero').value, 10),
     inquilino:      document.getElementById('nv-inquilino').value.trim(),
+    telefone:       document.getElementById('nv-telefone').value.trim(),
     aluguel_padrao: parseFloat(document.getElementById('nv-aluguel').value) || 0,
     relogio_luz:    parseInt(document.getElementById('nv-relogio').value, 10) || 1,
     unidades_luz:   parseFloat(document.getElementById('nv-uluz').value) || 1,
@@ -127,7 +132,7 @@ async function adicionar() {
   if (!body.numero) return toast('Informe o número da casa', false);
   const r = await api('POST', '/api/casas', body);
   if (r.ok) {
-    ['nv-numero','nv-inquilino','nv-aluguel','nv-relogio','nv-uluz','nv-uagua'].forEach(id => document.getElementById(id).value = '');
+    ['nv-numero','nv-inquilino','nv-telefone','nv-aluguel','nv-relogio','nv-uluz','nv-uagua'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('nv-aluguel').value = 0;
     document.getElementById('nv-relogio').value = 1;
     document.getElementById('nv-uluz').value = 1;

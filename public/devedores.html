@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Devedores — Controle de Aluguel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header>
+  <h1>🏠 Controle de Aluguel</h1>
+  <nav>
+    <a href="/">📅 Mês atual</a>
+    <a href="/recibos">📄 Recibos</a>
+    <a href="/devedores" class="active">⚠️ Devedores</a>
+    <a href="/casas">🏘️ Casas</a>
+  </nav>
+  <form method="POST" action="/logout" style="margin:0">
+    <button type="submit" class="logout-btn">Sair</button>
+  </form>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>⚠️ Quem está devendo <span class="right" id="ref-total"></span></h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
+      Lista todas as casas com pagamentos em aberto em qualquer mês.
+      Pra editar status de pagamento, vá em <a href="/" style="color:var(--accent)">Mês atual</a>.
+    </p>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
+      <div class="stat stat-devendo">
+        <div class="label">Total a receber</div>
+        <div class="value" id="s-total" style="color:var(--err)">—</div>
+      </div>
+      <div class="stat stat-devendo">
+        <div class="label">Casas devendo</div>
+        <div class="value" id="s-qtd" style="color:var(--err)">—</div>
+      </div>
+      <div class="stat stat-luz">
+        <div class="label">Meses em aberto (somados)</div>
+        <div class="value" id="s-meses" style="color:var(--c-luz)">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lista"></div>
+
+</main>
+
+<!-- Modal cobrança -->
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:520px;width:100%">
+    <h3 style="margin:0 0 12px" id="modal-titulo">Cobrança — WhatsApp</h3>
+    <textarea id="modal-text" style="width:100%;min-height:240px;background:#0a0c11;color:var(--txt);border:1px solid var(--border);padding:12px;border-radius:6px;font-family:inherit;font-size:14px"></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="ghost" onclick="fecharModal()">Fechar</button>
+      <button class="primary" onclick="copiarTexto()">📋 Copiar</button>
+      <button class="primary" id="modal-btn-wa" style="background:#25d366;color:#fff" onclick="abrirWhatsApp()">💬 Abrir WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal cadastro de telefone -->
+<div id="modal-tel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:420px;width:100%">
+    <h3 style="margin:0 0 12px">Editar telefone — Casa <span id="tel-casa"></span></h3>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 10px">
+      Formato: DDD + número (ex: <code>11987654321</code>). Sem espaços ou traços.
+    </p>
+    <input id="tel-input" type="tel" placeholder="11987654321" style="width:100%">
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="fecharModalTel()">Cancelar</button>
+      <button class="primary" onclick="salvarTelefone()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+function brl(n) {
+  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
+  return r.json();
+}
+
+window._devedores = [];
+
+async function carregar() {
+  const data = await api('GET', '/api/devedores');
+  window._devedores = data.devedores || [];
+  renderStats();
+  renderLista();
+}
+
+function renderStats() {
+  const total = window._devedores.reduce((s, d) => s + (d.total_devido || 0), 0);
+  const qtdMeses = window._devedores.reduce((s, d) => s + (d.meses?.length || 0), 0);
+  document.getElementById('s-total').textContent = brl(total);
+  document.getElementById('s-qtd').textContent   = window._devedores.length;
+  document.getElementById('s-meses').textContent = qtdMeses;
+}
+
+function renderLista() {
+  const root = document.getElementById('lista');
+  if (!window._devedores.length) {
+    root.innerHTML = `
+      <div class="card" style="text-align:center;padding:40px">
+        <div style="font-size:48px">🎉</div>
+        <h2 style="margin:8px 0;font-size:18px;color:var(--accent);text-transform:none">Tudo em dia!</h2>
+        <p style="color:var(--muted);margin:0">Nenhuma casa devendo. Bom trabalho!</p>
+      </div>
+    `;
+    return;
+  }
+
+  root.innerHTML = window._devedores.map(d => {
+    const casaStr = String(d.casa_numero).padStart(2, '0');
+    const mesesHtml = d.meses.map(m => {
+      const tags = [];
+      if (m.agua.valor    > 0 && !m.agua.pago)    tags.push(`<span class="item-pend agua">💧 ${brl(m.agua.valor)}</span>`);
+      if (m.luz.valor     > 0 && !m.luz.pago)     tags.push(`<span class="item-pend luz">💡 ${brl(m.luz.valor)}</span>`);
+      if (m.outros.valor  > 0 && !m.outros.pago)  tags.push(`<span class="item-pend outros">📦 ${escapeHtml(m.outros.descricao || 'Outros')} ${brl(m.outros.valor)}</span>`);
+      if (m.aluguel.valor > 0 && !m.aluguel.pago) tags.push(`<span class="item-pend aluguel">🏠 ${brl(m.aluguel.valor)}</span>`);
+      return `
+        <div class="mes-row">
+          <div class="ref">${m.nome_mes} / ${m.ano}</div>
+          <div class="itens">${tags.join('') || '<span style="color:var(--muted)">—</span>'}</div>
+          <div class="total-mes">${brl(m.total_aberto)}</div>
+        </div>
+      `;
+    }).join('');
+
+    const telTxt = d.telefone
+      ? `<span style="color:var(--muted);font-size:12px">📞 ${escapeHtml(d.telefone)}</span>`
+      : `<span style="color:var(--warn);font-size:12px">📞 sem telefone</span>`;
+
+    return `
+      <div class="dev-card">
+        <div class="head">
+          <div>
+            <div class="casa"><span class="num">CASA ${casaStr}</span>${escapeHtml(d.inquilino_atual || '—')}</div>
+            <div style="margin-top:4px">${telTxt}</div>
+          </div>
+          <div class="total-devido">${brl(d.total_devido)}</div>
+        </div>
+        <div class="meses">${mesesHtml}</div>
+        <div class="actions">
+          <a class="btn-wa" onclick="abrirCobranca(${d.casa_numero})">💬 Cobrar via WhatsApp</a>
+          <button class="btn-tel-edit" onclick="abrirModalTel(${d.casa_numero}, '${escapeHtml(d.telefone || '')}')">📞 ${d.telefone ? 'Editar' : 'Cadastrar'} telefone</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+let _modalDev = null;
+function abrirCobranca(casaNum) {
+  const d = window._devedores.find(x => x.casa_numero === casaNum);
+  if (!d) return;
+  _modalDev = d;
+  const casaStr = String(d.casa_numero).padStart(2, '0');
+  const linhas = [];
+  linhas.push(`Olá ${d.inquilino_atual || ''} (Casa ${casaStr}) 🏠`);
+  linhas.push('Tudo bem? Passando pra lembrar das contas em aberto:');
+  linhas.push('');
+  for (const m of d.meses) {
+    const partes = [];
+    if (m.agua.valor    > 0 && !m.agua.pago)    partes.push(`💧 Água ${brl(m.agua.valor)}`);
+    if (m.luz.valor     > 0 && !m.luz.pago)     partes.push(`💡 Luz ${brl(m.luz.valor)}`);
+    if (m.outros.valor  > 0 && !m.outros.pago)  partes.push(`📦 ${m.outros.descricao || 'Outros'} ${brl(m.outros.valor)}`);
+    if (m.aluguel.valor > 0 && !m.aluguel.pago) partes.push(`🏠 Aluguel ${brl(m.aluguel.valor)}`);
+    linhas.push(`*${m.nome_mes}/${m.ano}* — ${brl(m.total_aberto)}`);
+    for (const p of partes) linhas.push(`  • ${p}`);
+    linhas.push('');
+  }
+  linhas.push(`💰 *TOTAL: ${brl(d.total_devido)}*`);
+  linhas.push('');
+  linhas.push('Quando puder me passar, agradeço! 🙏');
+
+  document.getElementById('modal-titulo').textContent = `Cobrança — ${d.inquilino_atual} (Casa ${casaStr})`;
+  document.getElementById('modal-text').value = linhas.join('\n');
+  document.getElementById('modal').style.display = 'flex';
+}
+function fecharModal() {
+  document.getElementById('modal').style.display = 'none';
+  _modalDev = null;
+}
+function copiarTexto() {
+  const t = document.getElementById('modal-text');
+  t.select();
+  document.execCommand('copy');
+  alert('✅ Copiado! Cole no WhatsApp.');
+}
+function abrirWhatsApp() {
+  if (!_modalDev) return;
+  const texto = document.getElementById('modal-text').value;
+  const tel = (_modalDev.telefone || '').replace(/\D/g, '');
+  const telFinal = tel && !tel.startsWith('55') && tel.length >= 10 ? '55' + tel : tel;
+  const url = telFinal
+    ? `https://wa.me/${telFinal}?text=${encodeURIComponent(texto)}`
+    : `https://wa.me/?text=${encodeURIComponent(texto)}`;
+  window.open(url, '_blank');
+}
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') fecharModal();
+});
+
+// ─── Telefone ───
+let _telCasaNum = null;
+async function abrirModalTel(casaNum, telAtual) {
+  _telCasaNum = casaNum;
+  document.getElementById('tel-casa').textContent = String(casaNum).padStart(2, '0');
+  document.getElementById('tel-input').value = telAtual || '';
+  document.getElementById('modal-tel').style.display = 'flex';
+  setTimeout(() => document.getElementById('tel-input').focus(), 50);
+}
+function fecharModalTel() {
+  document.getElementById('modal-tel').style.display = 'none';
+  _telCasaNum = null;
+}
+async function salvarTelefone() {
+  if (!_telCasaNum) return;
+  const tel = document.getElementById('tel-input').value.trim();
+  // Pega o id da casa pelo número
+  const casas = await api('GET', '/api/casas');
+  const c = casas.find(x => x.numero === _telCasaNum);
+  if (!c) return alert('Casa não encontrada');
+  await api('PUT', `/api/casas/${c.id}`, { telefone: tel });
+  fecharModalTel();
+  await carregar();
+}
+
+carregar();
+</script>
+
+</body>
+</html>
