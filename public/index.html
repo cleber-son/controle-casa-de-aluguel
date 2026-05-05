@@ -5,6 +5,7 @@
 <title>Controle de Aluguel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/css/style.css">
+<script src="/js/mes-ref.js"></script>
 </head>
 <body>
 
@@ -14,8 +15,10 @@
     <a href="/" class="active">📅 Mês atual</a>
     <a href="/recibos">📄 Recibos</a>
     <a href="/devedores">⚠️ Devedores</a>
+    <a href="/historico">📊 Histórico</a>
     <a href="/casas">🏘️ Casas</a>
   </nav>
+  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
   </form>
@@ -23,34 +26,36 @@
 
 <main>
 
-  <!-- ─────────── SELETOR DE MÊS ─────────── -->
+  <!-- ─────────── SELETOR DE MÊS + AÇÕES DO MÊS ─────────── -->
   <div class="card">
     <h2>Mês de referência</h2>
     <div class="field-inline">
-      <div class="field">
+      <div class="field" style="flex:0 0 110px">
         <label>Ano</label>
-        <input id="sel-ano" type="number" min="2020" max="2099" step="1">
+        <input id="sel-ano" type="number" min="2026" max="2099" step="1">
       </div>
-      <div class="field">
+      <div class="field" style="flex:0 0 150px">
         <label>Mês</label>
-        <select id="sel-mes">
-          <option value="1">Janeiro</option><option value="2">Fevereiro</option>
-          <option value="3">Março</option><option value="4">Abril</option>
-          <option value="5">Maio</option><option value="6">Junho</option>
-          <option value="7">Julho</option><option value="8">Agosto</option>
-          <option value="9">Setembro</option><option value="10">Outubro</option>
-          <option value="11">Novembro</option><option value="12">Dezembro</option>
-        </select>
+        <select id="sel-mes"></select>
       </div>
-      <div class="field">
+      <div class="field" style="flex:0 0 auto">
         <label>&nbsp;</label>
-        <button class="primary" onclick="carregarMes()">Carregar</button>
+        <button class="primary" onclick="carregarMes()">📂 Carregar</button>
       </div>
-      <div class="field" style="flex:2">
+      <div class="field" style="flex:0 0 auto">
         <label>&nbsp;</label>
-        <a class="btn-ghost" id="link-recibos" href="/recibos">📄 Ver recibos deste mês</a>
+        <button class="primary" onclick="salvarHeader()">💾 Salvar e recalcular</button>
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <button class="danger" onclick="limparDadosMes()" style="padding:9px 16px;font-size:13px">🗑️ Limpar dados</button>
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <label>&nbsp;</label>
+        <a class="btn-ghost" id="link-recibos" href="/recibos">📄 Ver recibos</a>
       </div>
     </div>
+    <span id="header-toast" class="toast"></span>
   </div>
 
   <!-- ─────────── STATS DO MÊS ─────────── -->
@@ -79,7 +84,7 @@
     </div>
   </div>
 
-  <!-- ─────────── HEADER DO MÊS (água + relógios + vencimentos) ─────────── -->
+  <!-- ─────────── HEADER DO MÊS (água + relógios) ─────────── -->
   <div class="card" id="card-header">
     <h2>Contas do mês <span id="ref-mes" class="right"></span></h2>
 
@@ -92,10 +97,6 @@
         <label style="color:var(--c-agua)">💧 Divisor</label>
         <input id="agua-divisor" type="number" step="0.5" min="1">
       </div>
-      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
-        <label style="color:var(--c-agua)">💧 Vence dia (1-31)</label>
-        <input id="venc-agua" type="number" min="1" max="31" placeholder="ex: 10">
-      </div>
       <div class="field" style="flex:2">
         <label>&nbsp;</label>
         <span id="agua-por-unidade" style="display:inline-block;padding:9px 0;color:var(--c-agua);font-size:13px;font-weight:600"></span>
@@ -103,19 +104,24 @@
     </div>
 
     <div id="relogios-area" style="margin-top:10px"></div>
+  </div>
 
-    <div class="field-inline" style="margin-top:8px">
+  <!-- ─────────── VENCIMENTOS LADO A LADO ─────────── -->
+  <div class="card" id="card-vencimentos">
+    <h2>🗓️ Vencimentos do mês</h2>
+    <div class="field-inline">
+      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
+        <label style="color:var(--c-agua)">💧 Água vence dia (1-31)</label>
+        <input id="venc-agua" type="number" min="1" max="31" placeholder="ex: 10">
+      </div>
       <div class="field" style="border-left:3px solid var(--c-luz);padding-left:10px">
         <label style="color:var(--c-luz)">💡 Luz vence dia (1-31)</label>
         <input id="venc-luz" type="number" min="1" max="31" placeholder="ex: 15">
       </div>
     </div>
-
-    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="primary" onclick="salvarHeader()">💾 Salvar e recalcular</button>
-      <button class="danger" onclick="limparDadosMes()" style="padding:9px 16px;font-size:13px">🗑️ Limpar dados do mês</button>
-      <span id="header-toast" class="toast"></span>
-    </div>
+    <p style="color:var(--muted);font-size:12px;margin:10px 0 0">
+      Use o botão <strong>💾 Salvar e recalcular</strong> no topo pra gravar.
+    </p>
   </div>
 
   <!-- ─────────── TABELA DE LANÇAMENTOS ─────────── -->
@@ -177,7 +183,6 @@
 </main>
 
 <script>
-const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 let mesAtual = null;
 
 function brl(n) {
@@ -200,19 +205,47 @@ function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
-(function initSeletor() {
-  const hoje = new Date();
-  document.getElementById('sel-ano').value = hoje.getFullYear();
-  document.getElementById('sel-mes').value = hoje.getMonth() + 1;
-})();
+// ── Inicialização do seletor a partir do mes-ref persistente ──
+const refIni = getMesRef();
+const selAno = document.getElementById('sel-ano');
+const selMes = document.getElementById('sel-mes');
+selAno.value = refIni.ano;
+preencherOpcoesMes(selMes, refIni.ano);
+selMes.value = refIni.mes;
+
+// Tag de mês ativo no header
+document.addEventListener('DOMContentLoaded', () => {
+  const r = getMesRef();
+  const t = document.getElementById('tag-mes-ativo-txt');
+  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
+});
+
+// Auto-load ao mudar Ano ou Mês
+selAno.addEventListener('change', () => {
+  let ano = parseInt(selAno.value, 10);
+  if (!ano || ano < 2026) { ano = 2026; selAno.value = 2026; }
+  const mesPrev = parseInt(selMes.value, 10);
+  preencherOpcoesMes(selMes, ano);
+  // Mantém o mês previamente selecionado se ainda for válido
+  const opts = [...selMes.options].map(o => parseInt(o.value, 10));
+  selMes.value = opts.includes(mesPrev) ? mesPrev : opts[0];
+  carregarMes();
+});
+selMes.addEventListener('change', () => carregarMes());
 
 async function carregarMes() {
-  const ano = parseInt(document.getElementById('sel-ano').value, 10);
-  const mes = parseInt(document.getElementById('sel-mes').value, 10);
+  const ano = parseInt(selAno.value, 10);
+  const mes = parseInt(selMes.value, 10);
   if (!ano || !mes) return;
+  setMesRef(ano, mes);
+  document.getElementById('tag-mes-ativo-txt').textContent = `${NOMES_MES[mes]}/${ano}`;
   document.getElementById('link-recibos').href = `/recibos?ano=${ano}&mes=${mes}`;
 
   const data = await api('GET', `/api/mes/${ano}/${mes}`);
+  if (data && data.error) {
+    toast('header-toast', '❌ ' + data.error, false);
+    return;
+  }
   mesAtual = data;
   document.getElementById('ref-mes').textContent = `${NOMES_MES[mes]} / ${ano}`;
   renderHeader(data);
@@ -270,7 +303,6 @@ document.getElementById('agua-divisor').addEventListener('input', atualizarPorUn
 async function limparDadosMes() {
   if (!mesAtual) return;
   const ref = `${NOMES_MES[mesAtual.mes.mes]}/${mesAtual.mes.ano}`;
-  // Confirmação dupla pra evitar acidente
   if (!confirm(`⚠️ ATENÇÃO\n\nIsso vai ZERAR TODOS OS DADOS do mês ${ref}:\n\n• Conta de água (total, divisor, vencimento)\n• Contas de luz por relógio + vencimento\n• Valores calculados de água e luz das casas\n• Item "Outros" e seu valor\n• TODOS os marcadores de pago/não-pago\n• Descontos e pagamentos do pai/mãe\n\nMantém: inquilinos atuais e o aluguel padrão de cada casa.\n\nTem certeza?`)) return;
   if (!confirm(`Última confirmação: limpar mesmo o mês ${ref}?\n\nNão tem como desfazer.`)) return;
   try {
@@ -310,7 +342,6 @@ async function salvarHeader() {
 function statusClass(l) {
   if (l.vazia) return '';
   if (l.tudo_pago) return 'row-pago';
-  // Algum item pago mas não todos = parcial
   const pagos = (l.agua_pago?1:0) + (l.luz_pago?1:0) + (l.outros_pago?1:0) + (l.aluguel_pago?1:0);
   const itens = (l.agua_valor>0?1:0) + (l.luz_valor>0?1:0) + (l.outros_valor>0?1:0) + (l.aluguel_valor>0?1:0);
   if (pagos > 0 && pagos < itens) return 'row-parcial';
@@ -371,7 +402,6 @@ async function onCellChange(input) {
 
   try {
     await api('PUT', `/api/lancamento/${id}`, body);
-    // Sempre recarrega - precisamos atualizar status visual e stats
     await carregarMes();
   } catch (e) {
     alert('Erro ao salvar: ' + e.message);

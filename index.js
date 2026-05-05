@@ -88,6 +88,9 @@ app.get('/casas', requireAuth, (req, res) => {
 app.get('/devedores', requireAuth, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'devedores.html'));
 });
+app.get('/historico', requireAuth, (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'historico.html'));
+});
 
 // Assets (css, js) – públicos
 app.use('/css', express.static(path.join(PUBLIC_DIR, 'css')));

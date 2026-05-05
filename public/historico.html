@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Histórico — Controle de Aluguel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/mes-ref.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🏠 Controle de Aluguel</h1>
+  <nav>
+    <a href="/">📅 Mês atual</a>
+    <a href="/recibos">📄 Recibos</a>
+    <a href="/devedores">⚠️ Devedores</a>
+    <a href="/historico" class="active">📊 Histórico</a>
+    <a href="/casas">🏘️ Casas</a>
+  </nav>
+  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
+  <form method="POST" action="/logout" style="margin:0">
+    <button type="submit" class="logout-btn">Sair</button>
+  </form>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>📊 Histórico de lançamentos</h2>
+    <div class="field-inline">
+      <div class="field" style="flex:0 0 140px">
+        <label>Ano</label>
+        <select id="f-ano"></select>
+      </div>
+      <div class="field" style="flex:0 0 200px">
+        <label>Casa</label>
+        <select id="f-casa">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="field" style="flex:0 0 160px">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="todos">Todos</option>
+          <option value="pagos">Pagos</option>
+          <option value="devendo">Devendo</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));margin-bottom:16px">
+    <div class="stat stat-pago">
+      <div class="label">💰 Total recebido</div>
+      <div class="value" id="s-recebido" style="color:var(--accent)">—</div>
+    </div>
+    <div class="stat stat-devendo">
+      <div class="label">⏳ Em aberto</div>
+      <div class="value" id="s-aberto" style="color:var(--err)">—</div>
+    </div>
+    <div class="stat">
+      <div class="label">📋 Lançamentos</div>
+      <div class="value" id="s-qtd" style="color:var(--info)">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Lançamentos</h2>
+    <div style="overflow-x:auto">
+      <table class="tbl-historico" id="tbl-historico">
+        <thead>
+          <tr>
+            <th>Ref</th>
+            <th>Casa</th>
+            <th>Inquilino</th>
+            <th class="col-agua" style="text-align:right">💧 Água</th>
+            <th class="col-luz" style="text-align:right">💡 Luz</th>
+            <th class="col-outros" style="text-align:right">📦 Outros</th>
+            <th class="col-aluguel" style="text-align:right">🏠 Aluguel</th>
+            <th class="col-total" style="text-align:right">💰 Total</th>
+            <th>Status</th>
+            <th>Pago em</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-historico"></tbody>
+      </table>
+    </div>
+    <p id="msg-vazio" style="color:var(--muted);font-size:13px;margin-top:10px;display:none">
+      Nenhum resultado pros filtros aplicados.
+    </p>
+  </div>
+
+</main>
+
+<script>
+function brl(n) {
+  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function formatDataBR(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+async function api(method, url) {
+  const r = await fetch(url, { method });
+  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
+  return r.json();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const r = getMesRef();
+  const t = document.getElementById('tag-mes-ativo-txt');
+  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
+});
+
+// Popula filtros: Ano (Todos + 2026..hoje.ano+1), Casa (Todas + casas ativas)
+const fAno = document.getElementById('f-ano');
+const fCasa = document.getElementById('f-casa');
+const fStatus = document.getElementById('f-status');
+
+(function preencherAno() {
+  const hoje = new Date();
+  const max = hoje.getFullYear() + 1;
+  fAno.innerHTML = '<option value="">Todos</option>';
+  for (let a = 2026; a <= max; a++) {
+    const o = document.createElement('option');
+    o.value = a;
+    o.textContent = a;
+    fAno.appendChild(o);
+  }
+})();
+
+async function preencherCasas() {
+  const casas = await api('GET', '/api/casas');
+  fCasa.innerHTML = '<option value="">Todas</option>';
+  casas.sort((a, b) => a.numero - b.numero).forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.numero;
+    o.textContent = `${String(c.numero).padStart(2, '0')} — ${c.inquilino || '(vazia)'}`;
+    fCasa.appendChild(o);
+  });
+}
+
+[fAno, fCasa, fStatus].forEach(el => el.addEventListener('change', carregar));
+
+async function carregar() {
+  const params = new URLSearchParams();
+  if (fAno.value)    params.set('ano', fAno.value);
+  if (fCasa.value)   params.set('casa', fCasa.value);
+  if (fStatus.value) params.set('status', fStatus.value);
+
+  const data = await api('GET', '/api/historico?' + params.toString());
+
+  document.getElementById('s-recebido').textContent = brl(data.totais.recebido);
+  document.getElementById('s-aberto').textContent   = brl(data.totais.em_aberto);
+  document.getElementById('s-qtd').textContent      = data.totais.qtd_lancamentos;
+
+  const tbody = document.getElementById('tbody-historico');
+  const msgVazio = document.getElementById('msg-vazio');
+  if (!data.itens.length) {
+    tbody.innerHTML = '';
+    msgVazio.style.display = 'block';
+    return;
+  }
+  msgVazio.style.display = 'none';
+
+  tbody.innerHTML = data.itens.map(i => {
+    const cls = i.vazia ? 'linha-vazia' : (i.tudo_pago ? 'row-pago' : 'row-devendo');
+    let badge;
+    if (i.vazia)         badge = '<span class="status-badge vazia">— vazia</span>';
+    else if (i.tudo_pago) badge = '<span class="status-badge pago">✅ PAGO</span>';
+    else                 badge = '<span class="status-badge aberto">⏳ ABERTO</span>';
+
+    return `
+      <tr class="${cls}" onclick="location.href='/?ano=${i.ano}&mes=${i.mes}'">
+        <td><strong>${escapeHtml(i.ref)}</strong></td>
+        <td><span class="casa-num">${escapeHtml(i.casa_str)}</span></td>
+        <td>${escapeHtml(i.inquilino || (i.vazia ? '(vazia)' : '—'))}</td>
+        <td class="num">${brl(i.agua_valor)}</td>
+        <td class="num">${brl(i.luz_valor)}</td>
+        <td class="num">${i.outros_valor > 0 ? brl(i.outros_valor) : '—'}</td>
+        <td class="num">${brl(i.aluguel_valor)}</td>
+        <td class="num">${brl(i.total_cobrado)}</td>
+        <td>${badge}</td>
+        <td>${formatDataBR(i.pago_em)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+(async function init() {
+  await preencherCasas();
+  await carregar();
+})();
+</script>
+
+</body>
+</html>

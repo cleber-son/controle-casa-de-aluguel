@@ -5,6 +5,7 @@
 <title>Casas — Controle de Aluguel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/css/style.css">
+<script src="/js/mes-ref.js"></script>
 </head>
 <body>
 
@@ -14,12 +15,22 @@
     <a href="/">📅 Mês atual</a>
     <a href="/recibos">📄 Recibos</a>
     <a href="/devedores">⚠️ Devedores</a>
+    <a href="/historico">📊 Histórico</a>
     <a href="/casas" class="active">🏘️ Casas</a>
   </nav>
+  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
   </form>
 </header>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const r = getMesRef();
+  const t = document.getElementById('tag-mes-ativo-txt');
+  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
+});
+</script>
 
 <main>
 

@@ -264,7 +264,18 @@ function nomeMes(n) {
   return NOMES_MES[n - 1] || '';
 }
 
+// Início do controle: ABRIL/2026. Nada antes disso aparece nas listagens.
+const INICIO_PERIODO = { ano: 2026, mes: 4 };
+
+function antesPeriodo(ano, mes) {
+  if (ano < INICIO_PERIODO.ano) return true;
+  if (ano === INICIO_PERIODO.ano && mes < INICIO_PERIODO.mes) return true;
+  return false;
+}
+
 module.exports = {
+  INICIO_PERIODO,
+  antesPeriodo,
   garantirMes,
   recalcularMes,
   carregarMes,

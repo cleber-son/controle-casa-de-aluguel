@@ -5,6 +5,7 @@
 <title>Devedores — Controle de Aluguel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/css/style.css">
+<script src="/js/mes-ref.js"></script>
 </head>
 <body>
 
@@ -14,8 +15,10 @@
     <a href="/">📅 Mês atual</a>
     <a href="/recibos">📄 Recibos</a>
     <a href="/devedores" class="active">⚠️ Devedores</a>
+    <a href="/historico">📊 Histórico</a>
     <a href="/casas">🏘️ Casas</a>
   </nav>
+  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
   <form method="POST" action="/logout" style="margin:0">
     <button type="submit" class="logout-btn">Sair</button>
   </form>
@@ -26,7 +29,7 @@
   <div class="card">
     <h2>⚠️ Quem está devendo <span class="right" id="ref-total"></span></h2>
     <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
-      Lista todas as casas com pagamentos em aberto em qualquer mês.
+      Lista todas as casas com pagamentos em aberto em qualquer mês a partir de abril/2026.
       Pra editar status de pagamento, vá em <a href="/" style="color:var(--accent)">Mês atual</a>.
     </p>
     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
@@ -49,19 +52,6 @@
 
 </main>
 
-<!-- Modal cobrança -->
-<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
-  <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:520px;width:100%">
-    <h3 style="margin:0 0 12px" id="modal-titulo">Cobrança — WhatsApp</h3>
-    <textarea id="modal-text" style="width:100%;min-height:240px;background:#0a0c11;color:var(--txt);border:1px solid var(--border);padding:12px;border-radius:6px;font-family:inherit;font-size:14px"></textarea>
-    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">
-      <button class="ghost" onclick="fecharModal()">Fechar</button>
-      <button class="primary" onclick="copiarTexto()">📋 Copiar</button>
-      <button class="primary" id="modal-btn-wa" style="background:#25d366;color:#fff" onclick="abrirWhatsApp()">💬 Abrir WhatsApp</button>
-    </div>
-  </div>
-</div>
-
 <!-- Modal cadastro de telefone -->
 <div id="modal-tel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:20px">
   <div style="background:var(--panel);padding:20px;border-radius:8px;max-width:420px;width:100%">
@@ -78,8 +68,6 @@
 </div>
 
 <script>
-const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-
 function brl(n) {
   return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -93,6 +81,12 @@ async function api(method, url, body) {
   if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
   return r.json();
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const r = getMesRef();
+  const t = document.getElementById('tag-mes-ativo-txt');
+  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
+});
 
 window._devedores = [];
 
@@ -164,57 +158,38 @@ function renderLista() {
   }).join('');
 }
 
-let _modalDev = null;
-function abrirCobranca(casaNum) {
-  const d = window._devedores.find(x => x.casa_numero === casaNum);
-  if (!d) return;
-  _modalDev = d;
+// Negrito SOMENTE no mês/ano e nos valores (mesmas regras do recibo).
+function montarMensagem(d) {
   const casaStr = String(d.casa_numero).padStart(2, '0');
   const linhas = [];
   linhas.push(`Olá ${d.inquilino_atual || ''} (Casa ${casaStr}) 🏠`);
   linhas.push('Tudo bem? Passando pra lembrar das contas em aberto:');
   linhas.push('');
   for (const m of d.meses) {
-    const partes = [];
-    if (m.agua.valor    > 0 && !m.agua.pago)    partes.push(`💧 Água ${brl(m.agua.valor)}`);
-    if (m.luz.valor     > 0 && !m.luz.pago)     partes.push(`💡 Luz ${brl(m.luz.valor)}`);
-    if (m.outros.valor  > 0 && !m.outros.pago)  partes.push(`📦 ${m.outros.descricao || 'Outros'} ${brl(m.outros.valor)}`);
-    if (m.aluguel.valor > 0 && !m.aluguel.pago) partes.push(`🏠 Aluguel ${brl(m.aluguel.valor)}`);
-    linhas.push(`*${m.nome_mes}/${m.ano}* — ${brl(m.total_aberto)}`);
-    for (const p of partes) linhas.push(`  • ${p}`);
+    linhas.push(`*${m.nome_mes}/${m.ano}* — *${brl(m.total_aberto)}*`);
+    if (m.agua.valor    > 0 && !m.agua.pago)    linhas.push(`  💧 Água: *${brl(m.agua.valor)}*`);
+    if (m.luz.valor     > 0 && !m.luz.pago)     linhas.push(`  💡 Luz: *${brl(m.luz.valor)}*`);
+    if (m.outros.valor  > 0 && !m.outros.pago)  linhas.push(`  📦 ${m.outros.descricao || 'Outros'}: *${brl(m.outros.valor)}*`);
+    if (m.aluguel.valor > 0 && !m.aluguel.pago) linhas.push(`  🏠 Aluguel: *${brl(m.aluguel.valor)}*`);
     linhas.push('');
   }
-  linhas.push(`💰 *TOTAL: ${brl(d.total_devido)}*`);
+  linhas.push(`💰 TOTAL: *${brl(d.total_devido)}*`);
   linhas.push('');
   linhas.push('Quando puder me passar, agradeço! 🙏');
+  return linhas.join('\n');
+}
 
-  document.getElementById('modal-titulo').textContent = `Cobrança — ${d.inquilino_atual} (Casa ${casaStr})`;
-  document.getElementById('modal-text').value = linhas.join('\n');
-  document.getElementById('modal').style.display = 'flex';
-}
-function fecharModal() {
-  document.getElementById('modal').style.display = 'none';
-  _modalDev = null;
-}
-function copiarTexto() {
-  const t = document.getElementById('modal-text');
-  t.select();
-  document.execCommand('copy');
-  alert('✅ Copiado! Cole no WhatsApp.');
-}
-function abrirWhatsApp() {
-  if (!_modalDev) return;
-  const texto = document.getElementById('modal-text').value;
-  const tel = (_modalDev.telefone || '').replace(/\D/g, '');
+function abrirCobranca(casaNum) {
+  const d = window._devedores.find(x => x.casa_numero === casaNum);
+  if (!d) return;
+  const texto = montarMensagem(d);
+  const tel = (d.telefone || '').replace(/\D/g, '');
   const telFinal = tel && !tel.startsWith('55') && tel.length >= 10 ? '55' + tel : tel;
   const url = telFinal
     ? `https://wa.me/${telFinal}?text=${encodeURIComponent(texto)}`
     : `https://wa.me/?text=${encodeURIComponent(texto)}`;
   window.open(url, '_blank');
 }
-document.getElementById('modal').addEventListener('click', e => {
-  if (e.target.id === 'modal') fecharModal();
-});
 
 // ─── Telefone ───
 let _telCasaNum = null;
@@ -232,7 +207,6 @@ function fecharModalTel() {
 async function salvarTelefone() {
   if (!_telCasaNum) return;
   const tel = document.getElementById('tel-input').value.trim();
-  // Pega o id da casa pelo número
   const casas = await api('GET', '/api/casas');
   const c = casas.find(x => x.numero === _telCasaNum);
   if (!c) return alert('Casa não encontrada');

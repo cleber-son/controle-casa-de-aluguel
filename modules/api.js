@@ -88,13 +88,21 @@ router.delete('/casas/:id', (req, res) => {
 
 // ─── MESES / LANÇAMENTOS ────────────────────────────────────────
 router.get('/meses', (req, res) => {
-  const list = db.prepare('SELECT * FROM meses ORDER BY ano DESC, mes DESC').all();
+  const ini = calc.INICIO_PERIODO;
+  const list = db.prepare(`
+    SELECT * FROM meses
+     WHERE (ano > ?) OR (ano = ? AND mes >= ?)
+     ORDER BY ano DESC, mes DESC
+  `).all(ini.ano, ini.ano, ini.mes);
   res.json(list);
 });
 
 router.get('/mes/:ano/:mes', (req, res) => {
   const ano = parseInt(req.params.ano, 10);
   const mes = parseInt(req.params.mes, 10);
+  if (calc.antesPeriodo(ano, mes)) {
+    return res.status(400).json({ error: 'período fora do controle (inicia em abril/2026)' });
+  }
   calc.garantirMes(ano, mes);
   const data = calc.carregarMes(ano, mes);
   if (!data) return res.status(404).json({ error: 'Mês não encontrado' });
@@ -310,6 +318,7 @@ router.put('/pagamento-pai', (req, res) => {
 // agrupado por casa, com soma do que devem.
 router.get('/devedores', (req, res) => {
   try {
+    const ini = calc.INICIO_PERIODO;
     // Pega todos lançamentos com casa info
     const todos = db.prepare(`
       SELECT l.*,
@@ -319,8 +328,9 @@ router.get('/devedores', (req, res) => {
         JOIN meses m ON m.id = l.mes_id
         JOIN casas c ON c.id = l.casa_id
        WHERE l.vazia = 0
+         AND ((m.ano > ?) OR (m.ano = ? AND m.mes >= ?))
        ORDER BY c.numero, m.ano DESC, m.mes DESC
-    `).all();
+    `).all(ini.ano, ini.ano, ini.mes);
 
     // Filtra só os pendentes (que não estão totalmente pagos)
     const pendentes = todos.filter(l => !calc.totalmentePago(l));
@@ -415,6 +425,100 @@ router.get('/recibos/:ano/:mes', (req, res) => {
   res.json({ mes: data.mes, recibos });
 });
 
+// ─── HISTÓRICO (relatório consolidado por filtros) ─────────────
+router.get('/historico', (req, res) => {
+  try {
+    const ini = calc.INICIO_PERIODO;
+    const ano = req.query.ano ? parseInt(req.query.ano, 10) : null;
+    const casa = req.query.casa ? parseInt(req.query.casa, 10) : null;
+    const status = (req.query.status || 'todos').toLowerCase();
+
+    const where = ['((m.ano > ?) OR (m.ano = ? AND m.mes >= ?))'];
+    const params = [ini.ano, ini.ano, ini.mes];
+    if (Number.isFinite(ano) && ano) {
+      where.push('m.ano = ?');
+      params.push(ano);
+    }
+    if (Number.isFinite(casa) && casa) {
+      where.push('c.numero = ?');
+      params.push(casa);
+    }
+
+    const rows = db.prepare(`
+      SELECT l.*,
+             m.ano, m.mes, m.vencimento_agua, m.vencimento_luz,
+             c.numero AS casa_numero
+        FROM lancamentos l
+        JOIN meses m ON m.id = l.mes_id
+        JOIN casas c ON c.id = l.casa_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY m.ano DESC, m.mes DESC, c.numero ASC
+    `).all(...params);
+
+    const itens = [];
+    let recebido = 0, em_aberto = 0, total_cobrado = 0;
+    for (const l of rows) {
+      const tudoPago = calc.totalmentePago(l);
+      if (status === 'pagos' && !tudoPago) continue;
+      if (status === 'devendo' && (l.vazia || tudoPago)) continue;
+
+      const cobrado = (l.agua_valor || 0) + (l.luz_valor || 0)
+                    + (l.outros_valor || 0) + (l.aluguel_valor || 0);
+      const aberto = (
+        (!l.agua_pago    ? (l.agua_valor    || 0) : 0) +
+        (!l.luz_pago     ? (l.luz_valor     || 0) : 0) +
+        (!l.outros_pago  ? (l.outros_valor  || 0) : 0) +
+        (!l.aluguel_pago ? (l.aluguel_valor || 0) : 0)
+      );
+      const pago = cobrado - aberto;
+
+      total_cobrado += cobrado;
+      recebido      += pago;
+      if (!l.vazia) em_aberto += aberto;
+
+      itens.push({
+        mes_id: l.mes_id,
+        ano: l.ano,
+        mes: l.mes,
+        nome_mes: calc.nomeMes(l.mes),
+        ref: `${calc.nomeMes(l.mes)}/${l.ano}`,
+        casa_numero: l.casa_numero,
+        casa_str: String(l.casa_numero).padStart(2, '0'),
+        inquilino: l.inquilino || '',
+        vazia: !!l.vazia,
+        agua_valor: calc.round2(l.agua_valor || 0),
+        agua_pago: !!l.agua_pago,
+        luz_valor: calc.round2(l.luz_valor || 0),
+        luz_pago: !!l.luz_pago,
+        outros_valor: calc.round2(l.outros_valor || 0),
+        outros_descricao: l.outros_descricao,
+        outros_pago: !!l.outros_pago,
+        aluguel_valor: calc.round2(l.aluguel_valor || 0),
+        aluguel_pago: !!l.aluguel_pago,
+        total_cobrado: calc.round2(cobrado),
+        total_aberto: calc.round2(aberto),
+        tudo_pago: tudoPago,
+        pago_em: l.pago_em,
+        vencimento_agua: l.vencimento_agua,
+        vencimento_luz: l.vencimento_luz,
+      });
+    }
+
+    res.json({
+      itens,
+      totais: {
+        recebido: calc.round2(recebido),
+        em_aberto: calc.round2(em_aberto),
+        total_cobrado: calc.round2(total_cobrado),
+        qtd_lancamentos: itens.length,
+      },
+    });
+  } catch (e) {
+    error('[API] GET /historico:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 function brl(n) {
   return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -427,21 +531,21 @@ function gerarMensagemWA(l, nomeMes, mes) {
   linhas.push(`Segue a conta de *${nomeMes}/${mes.ano}*:`);
   linhas.push('');
   if (l.agua_valor > 0) {
-    let s = `💧 Água: ${brl(l.agua_valor)}`;
-    if (mes.vencimento_agua) s += `  _(até dia ${mes.vencimento_agua})_`;
+    let s = `💧 Água: *${brl(l.agua_valor)}*`;
+    if (mes.vencimento_agua) s += ` — pagar até dia ${mes.vencimento_agua}`;
     linhas.push(s);
   }
   if (l.luz_valor > 0) {
-    let s = `💡 Luz: ${brl(l.luz_valor)}`;
-    if (mes.vencimento_luz) s += `  _(até dia ${mes.vencimento_luz})_`;
+    let s = `💡 Luz: *${brl(l.luz_valor)}*`;
+    if (mes.vencimento_luz) s += ` — pagar até dia ${mes.vencimento_luz}`;
     linhas.push(s);
   }
   if (l.outros_valor > 0) {
-    linhas.push(`📦 ${l.outros_descricao || 'Outros'}: ${brl(l.outros_valor)}`);
+    linhas.push(`📦 ${l.outros_descricao || 'Outros'}: *${brl(l.outros_valor)}*`);
   }
   const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0);
   linhas.push('');
-  linhas.push(`💰 *TOTAL: ${brl(total)}*`);
+  linhas.push(`💰 TOTAL: *${brl(total)}*`);
   linhas.push('');
   linhas.push('Obrigado! 🙏');
   return linhas.join('\n');

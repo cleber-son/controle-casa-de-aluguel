@@ -537,3 +537,34 @@ tr.linha-vazia td input { background: #0a0c11; }
   th, td { padding: 6px 4px; font-size: 12px; }
   .dev-card .mes-row { grid-template-columns: 1fr; }
 }
+
+/* ───── Tag de mês ativo no header ───── */
+.tag-mes-ativo {
+  background: var(--panel-2);
+  color: var(--accent);
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  user-select: none;
+}
+.tag-mes-ativo:hover { border-color: var(--accent); }
+
+/* ───── Histórico ───── */
+.tbl-historico tr { cursor: pointer; }
+.tbl-historico tr.row-pago    td { background: rgba(62, 207, 142, 0.04); }
+.tbl-historico tr.row-devendo td { background: rgba(239, 68, 68, 0.04); }
+.tbl-historico tr.linha-vazia td { opacity: .55; }
+.status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+.status-badge.pago    { background: rgba(62, 207, 142, 0.18); color: var(--accent); }
+.status-badge.aberto  { background: rgba(239, 68, 68, 0.18); color: var(--err); }
+.status-badge.vazia   { background: var(--panel-2); color: var(--muted); }
