@@ -5,6 +5,7 @@
 <title>Controle de Aluguel — Login</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/css/style.css">
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 <div class="login-wrapper">
@@ -19,13 +20,18 @@
         <label for="senha">Senha</label>
         <input id="senha" name="senha" type="password" autofocus required style="width:100%">
       </div>
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADnXl9wSTvsZZq8n" data-theme="auto" style="margin:12px 0"></div>
       <button type="submit" class="primary">Entrar</button>
     </form>
   </div>
 </div>
 <script>
-  if (new URLSearchParams(location.search).get('erro') === '1') {
-    document.getElementById('erro-box').style.display = 'block';
+  var _erro = new URLSearchParams(location.search).get('erro');
+  if (_erro) {
+    var _box = document.getElementById('erro-box');
+    if (_erro === 'captcha') _box.textContent = 'Verificação anti-bot falhou. Recarregue e tente de novo.';
+    else if (_erro === 'bloqueado') _box.textContent = 'Muitas tentativas. Aguarde alguns minutos.';
+    _box.style.display = 'block';
   }
 </script>
 </body>

@@ -51,15 +51,63 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.post('/login', (req, res) => {
+// ─── Cloudflare Turnstile (captcha) + rate-limit do login ──────────
+// Atrás da Cloudflare; CF-Connecting-IP é o IP real (req.ip pode ser a borda da CF).
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY || '';
+const TURNSTILE_ENABLED = !!TURNSTILE_SECRET;
+function clientIp(req) {
+  return String(req.headers['cf-connecting-ip'] || req.ip || 'unknown');
+}
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_ENABLED) return true;       // fail-open se não configurado
+  if (!token) return false;
+  try {
+    const form = new URLSearchParams();
+    form.append('secret', TURNSTILE_SECRET);
+    form.append('response', token);
+    if (ip && ip !== 'unknown') form.append('remoteip', ip);
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form,
+    });
+    const data = await r.json();
+    return !!data.success;
+  } catch { return true; }                    // erro de rede com a CF não trava o login
+}
+// rate-limit em memória: 8 falhas/15min por IP → bloqueia 15min (antes só havia setTimeout)
+const _loginFails = new Map();
+function _loginBlocked(ip) { const r = _loginFails.get(ip); return !!(r && r.blockedUntil > Date.now()); }
+function _loginFail(ip) {
+  const now = Date.now();
+  let r = _loginFails.get(ip);
+  if (!r || now - r.first > 15 * 60 * 1000) r = { count: 0, first: now, blockedUntil: 0 };
+  r.count++;
+  if (r.count >= 8) r.blockedUntil = now + 15 * 60 * 1000;
+  _loginFails.set(ip, r);
+}
+function _loginOk(ip) { _loginFails.delete(ip); }
+
+app.post('/login', async (req, res) => {
+  const ip = clientIp(req);
+  if (_loginBlocked(ip)) {
+    log(`[AUTH] Login BLOQUEADO (rate-limit) ip=${ip}`);
+    return res.redirect('/login?erro=bloqueado');
+  }
+  const token = (req.body && req.body['cf-turnstile-response']) || '';
+  if (TURNSTILE_ENABLED && !(await verifyTurnstile(token, ip))) {
+    _loginFail(ip);
+    log(`[AUTH] Captcha falhou ip=${ip}`);
+    return res.redirect('/login?erro=captcha');
+  }
   const senha = (req.body && req.body.senha) || '';
   if (verificarSenha(senha)) {
+    _loginOk(ip);
     req.session.autenticado = true;
     req.session.loginAt = Date.now();
-    log(`[AUTH] Login OK de ip=${req.ip}`);
+    log(`[AUTH] Login OK de ip=${ip}`);
     return res.redirect('/');
   }
-  log(`[AUTH] Login FALHOU de ip=${req.ip}`);
+  _loginFail(ip);
+  log(`[AUTH] Login FALHOU de ip=${ip}`);
   // Pequeno delay pra desincentivar brute-force.
   setTimeout(() => {
     res.redirect('/login?erro=1');
