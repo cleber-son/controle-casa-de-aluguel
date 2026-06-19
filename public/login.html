@@ -15,7 +15,7 @@
 
     <div id="erro-box" class="erro" style="display:none">Senha incorreta. Tente novamente.</div>
 
-    <form method="POST" action="/login" autocomplete="on">
+    <form id="loginForm" method="POST" action="/login" autocomplete="on">
       <div class="field">
         <label for="senha">Senha</label>
         <input id="senha" name="senha" type="password" autofocus required style="width:100%">
@@ -23,14 +23,37 @@
       <div class="cf-turnstile" data-sitekey="0x4AAAAAADnXl9wSTvsZZq8n" data-theme="auto" style="margin:12px 0"></div>
       <button type="submit" class="primary">Entrar</button>
     </form>
+
+    <form id="twofaForm" method="POST" action="/login/verify-2fa" autocomplete="off" style="display:none">
+      <div class="sub" style="margin-bottom:10px">Enviamos um código de 6 dígitos para o seu e-mail. Digite-o abaixo para entrar.</div>
+      <div class="field">
+        <label for="codigo">Código de acesso</label>
+        <input id="codigo" name="codigo" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 dígitos" style="width:100%">
+      </div>
+      <button type="submit" class="primary">Verificar e entrar</button>
+    </form>
   </div>
 </div>
 <script>
-  var _erro = new URLSearchParams(location.search).get('erro');
+  var _params = new URLSearchParams(location.search);
+  if (_params.get('step') === '2fa') {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('twofaForm').style.display = 'block';
+    var _c = document.getElementById('codigo'); if (_c) _c.focus();
+  }
+  var _erro = _params.get('erro');
   if (_erro) {
     var _box = document.getElementById('erro-box');
-    if (_erro === 'captcha') _box.textContent = 'Verificação anti-bot falhou. Recarregue e tente de novo.';
-    else if (_erro === 'bloqueado') _box.textContent = 'Muitas tentativas. Aguarde alguns minutos.';
+    var _msgs = {
+      captcha: 'Verificação anti-bot falhou. Recarregue e tente de novo.',
+      bloqueado: 'Muitas tentativas. Aguarde alguns minutos.',
+      codigo: 'Código inválido. Tente de novo.',
+      expirou: 'Código expirado. Faça login novamente.',
+      tentativas: 'Muitas tentativas. Faça login novamente.',
+      email: 'Falha ao enviar o código por e-mail. Tente novamente.',
+      '1': 'Senha incorreta. Tente novamente.'
+    };
+    _box.textContent = _msgs[_erro] || 'Erro. Tente novamente.';
     _box.style.display = 'block';
   }
 </script>
