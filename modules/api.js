@@ -1,554 +1,638 @@
-// modules/api.js — rotas da API.
+// modules/api.js — router da API (/api). JSON, sessão obrigatória.
+// Convenção de erro: HTTP 4xx/5xx + { ok:false, erro:'mensagem em português' }.
 
 const express = require('express');
 const db = require('./db');
 const calc = require('./calculo');
+const msgs = require('./mensagens');
 const { requireAuth } = require('./auth');
-const { log, error } = require('./logger');
+const { error: logError } = require('./logger');
 
 const router = express.Router();
+router.use(express.json());
 router.use(requireAuth);
 
-// ─── CASAS (configuração) ────────────────────────────────────────
-router.get('/casas', (req, res) => {
-  const list = db.prepare('SELECT * FROM casas ORDER BY numero').all();
-  res.json(list);
-});
+// ── helpers ──────────────────────────────────────────────────────
 
-router.post('/casas', (req, res) => {
-  const b = req.body || {};
-  if (!b.numero) return res.status(400).json({ ok: false, error: 'numero obrigatório' });
-  try {
-    db.prepare(`
-      INSERT INTO casas (numero, inquilino, aluguel_padrao, relogio_luz, unidades_luz, unidades_agua, ativa, observacoes, telefone)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      b.numero,
-      b.inquilino || '',
-      Number(b.aluguel_padrao) || 0,
-      Number(b.relogio_luz) || 1,
-      Number(b.unidades_luz) || 1,
-      Number(b.unidades_agua) || 1,
-      b.ativa === false || b.ativa === 0 ? 0 : 1,
-      b.observacoes || null,
-      b.telefone || null,
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
+function falha(res, code, erro) {
+  return res.status(code).json({ ok: false, erro });
+}
 
-router.put('/casas/:id', (req, res) => {
-  const b = req.body || {};
-  try {
-    db.prepare(`
-      UPDATE casas SET
-        numero = COALESCE(?, numero),
-        inquilino = COALESCE(?, inquilino),
-        aluguel_padrao = COALESCE(?, aluguel_padrao),
-        relogio_luz = COALESCE(?, relogio_luz),
-        unidades_luz = COALESCE(?, unidades_luz),
-        unidades_agua = COALESCE(?, unidades_agua),
-        ativa = COALESCE(?, ativa),
-        observacoes = COALESCE(?, observacoes),
-        telefone = COALESCE(?, telefone)
-      WHERE id = ?
-    `).run(
-      b.numero ?? null,
-      b.inquilino ?? null,
-      b.aluguel_padrao ?? null,
-      b.relogio_luz ?? null,
-      b.unidades_luz ?? null,
-      b.unidades_agua ?? null,
-      b.ativa ?? null,
-      b.observacoes ?? null,
-      b.telefone ?? null,
-      req.params.id,
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-router.delete('/casas/:id', (req, res) => {
-  try {
-    const usada = db.prepare('SELECT 1 FROM lancamentos WHERE casa_id = ? LIMIT 1').get(req.params.id);
-    if (usada) {
-      db.prepare('UPDATE casas SET ativa = 0 WHERE id = ?').run(req.params.id);
-      return res.json({ ok: true, desativada: true });
+// wrapper: erros lançados viram resposta 400/500 em português
+function h(fn) {
+  return (req, res) => {
+    try {
+      fn(req, res);
+    } catch (e) {
+      logError('api:', e.message);
+      falha(res, e.statusCode || 400, e.message || 'Erro interno');
     }
-    db.prepare('DELETE FROM casas WHERE id = ?').run(req.params.id);
-    res.json({ ok: true, deletada: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
+  };
+}
 
-// ─── MESES / LANÇAMENTOS ────────────────────────────────────────
-router.get('/meses', (req, res) => {
+function toNum(v) {
+  if (v === '' || v == null) return NaN;
+  return Number(v);
+}
+
+function toInt(v) {
+  const n = toNum(v);
+  return Number.isInteger(n) ? n : NaN;
+}
+
+function dataISOouNull(v, campo) {
+  if (v == null || v === '') return null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) {
+    throw new Error(`Data inválida em ${campo} (use AAAA-MM-DD)`);
+  }
+  return v;
+}
+
+function valorOuErro(v, campo, { min = 0 } = {}) {
+  const n = toNum(v);
+  if (!Number.isFinite(n) || n < min) throw new Error(`Valor inválido em ${campo}`);
+  return calc.round2(n);
+}
+
+function boolOuErro(v, campo) {
+  if (typeof v === 'boolean') return v;
+  if (v === 0 || v === 1) return !!v;
+  throw new Error(`Valor inválido em ${campo} (esperado true/false)`);
+}
+
+function anoMesDaRota(req) {
+  const ano = toInt(req.params.ano);
+  const mes = toInt(req.params.mes);
+  if (Number.isNaN(ano) || Number.isNaN(mes) || mes < 1 || mes > 12) {
+    throw new Error('Mês inválido');
+  }
+  return { ano, mes };
+}
+
+function mesPorId(id) {
+  const m = db.prepare('SELECT * FROM meses WHERE id = ?').get(toInt(id));
+  if (!m) { const e = new Error('Mês não encontrado'); e.statusCode = 404; throw e; }
+  return m;
+}
+
+function exigirAberto(m) {
+  if (m.fechado) throw new Error('Mês fechado — reabra o mês para alterar');
+}
+
+function mesCompleto(mesId) {
+  const m = mesPorId(mesId);
+  return calc.carregarMes(m.ano, m.mes);
+}
+
+// mês corrente do relógio (fuso do app), nunca antes do início do período
+function mesAtualClock() {
+  const hoje = calc.hojeISO();
+  let ano = Number(hoje.slice(0, 4));
+  let mes = Number(hoje.slice(5, 7));
+  if (calc.antesPeriodo(ano, mes)) ({ ano, mes } = calc.INICIO_PERIODO);
+  return { ano, mes };
+}
+
+// ── Bootstrap ────────────────────────────────────────────────────
+
+router.get('/bootstrap', h((req, res) => {
   const ini = calc.INICIO_PERIODO;
-  const list = db.prepare(`
-    SELECT * FROM meses
-     WHERE (ano > ?) OR (ano = ? AND mes >= ?)
-     ORDER BY ano DESC, mes DESC
-  `).all(ini.ano, ini.ano, ini.mes);
-  res.json(list);
-});
+  const meses = db.prepare(`
+    SELECT ano, mes, fechado FROM meses
+    WHERE (ano * 100 + mes) >= ? ORDER BY ano, mes
+  `).all(ini.ano * 100 + ini.mes)
+    .map((m) => ({ ano: m.ano, mes: m.mes, label: calc.labelMes(m.ano, m.mes), fechado: m.fechado }));
+  const casas = db.prepare('SELECT * FROM casas ORDER BY numero').all();
+  res.json({
+    hoje: calc.hojeISO(),
+    inicio: { ano: ini.ano, mes: ini.mes },
+    mes_atual: mesAtualClock(),
+    meses,
+    casas,
+  });
+}));
 
-router.get('/mes/:ano/:mes', (req, res) => {
-  const ano = parseInt(req.params.ano, 10);
-  const mes = parseInt(req.params.mes, 10);
-  if (calc.antesPeriodo(ano, mes)) {
-    return res.status(400).json({ error: 'período fora do controle (inicia em abril/2026)' });
+// ── Casas ────────────────────────────────────────────────────────
+
+const CAMPOS_CASA = ['numero', 'inquilino', 'telefone', 'aluguel', 'moradores',
+  'relogio', 'peso_luz', 'ativa', 'observacoes'];
+
+function validarCamposCasa(b, { exigirNumero = false } = {}) {
+  const out = {};
+  if (exigirNumero || b.numero !== undefined) {
+    const n = toInt(b.numero);
+    if (Number.isNaN(n) || n < 1) throw new Error('Número da casa inválido');
+    out.numero = n;
   }
-  calc.garantirMes(ano, mes);
-  const data = calc.carregarMes(ano, mes);
-  if (!data) return res.status(404).json({ error: 'Mês não encontrado' });
-  res.json(data);
-});
-
-// Salva valores do header do mês (água total, divisor, vencimentos, contas de luz)
-router.put('/mes/:id/header', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const b = req.body || {};
-  try {
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE meses SET
-          agua_total      = COALESCE(?, agua_total),
-          agua_divisor    = COALESCE(?, agua_divisor),
-          vencimento_agua = COALESCE(?, vencimento_agua),
-          vencimento_luz  = COALESCE(?, vencimento_luz)
-        WHERE id = ?
-      `).run(
-        b.agua_total ?? null,
-        b.agua_divisor ?? null,
-        b.vencimento_agua === null ? null : (b.vencimento_agua ?? null),
-        b.vencimento_luz === null  ? null : (b.vencimento_luz  ?? null),
-        id,
-      );
-
-      if (Array.isArray(b.relogios)) {
-        const upd = db.prepare(`
-          INSERT INTO contas_luz_relogio (mes_id, relogio, valor_total)
-          VALUES (?, ?, ?)
-          ON CONFLICT(mes_id, relogio) DO UPDATE SET valor_total = excluded.valor_total
-        `);
-        for (const r of b.relogios) {
-          upd.run(id, Number(r.relogio), Number(r.valor_total) || 0);
-        }
-      }
-    });
-    tx();
-    calc.recalcularMes(id);
-    res.json({ ok: true });
-  } catch (e) {
-    error('[API] PUT /mes/:id/header:', e.message);
-    res.status(400).json({ ok: false, error: e.message });
+  if (b.inquilino !== undefined) out.inquilino = String(b.inquilino || '').trim();
+  if (b.telefone !== undefined) {
+    const dig = String(b.telefone || '').replace(/\D/g, '');
+    out.telefone = dig || null;
   }
-});
-
-// Edita um lançamento (inquilino, vazia, valores manuais, pago/não pago)
-router.put('/lancamento/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const b = req.body || {};
-  const allowed = [
-    'inquilino', 'vazia',
-    'agua_valor', 'agua_pago',
-    'luz_valor', 'luz_pago',
-    'outros_valor', 'outros_descricao', 'outros_pago',
-    'aluguel_valor', 'aluguel_pago',
-    'cobrar_obs',
-  ];
-  const sets = [];
-  const vals = [];
-  for (const k of allowed) {
-    if (b[k] !== undefined) {
-      sets.push(`${k} = ?`);
-      if (['vazia','agua_pago','luz_pago','outros_pago','aluguel_pago'].includes(k)) {
-        vals.push(b[k] ? 1 : 0);
-      } else {
-        vals.push(b[k]);
-      }
-    }
+  if (b.aluguel !== undefined) out.aluguel = valorOuErro(b.aluguel, 'aluguel');
+  if (b.moradores !== undefined) {
+    const n = toInt(b.moradores);
+    if (Number.isNaN(n) || n < 0) throw new Error('Número de moradores inválido');
+    out.moradores = n;
   }
-  if (!sets.length) return res.json({ ok: true, noop: true });
-  vals.push(id);
-
-  try {
-    db.prepare(`UPDATE lancamentos SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-
-    // Se mudou algum *_pago, atualiza pago_em automaticamente.
-    const mudouFlagPago = ['agua_pago','luz_pago','outros_pago','aluguel_pago']
-      .some(k => b[k] !== undefined);
-    if (mudouFlagPago) {
-      calc.atualizarPagoEm(id);
-    }
-
-    // Se mudou "vazia", precisa recalcular o mês inteiro.
-    if (b.vazia !== undefined) {
-      const r = db.prepare('SELECT mes_id FROM lancamentos WHERE id = ?').get(id);
-      if (r) calc.recalcularMes(r.mes_id);
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
+  if (b.relogio !== undefined) {
+    const n = toInt(b.relogio);
+    if (Number.isNaN(n) || n < 1) throw new Error('Relógio inválido');
+    out.relogio = n;
   }
-});
-
-// Toggle "Pago tudo" — marca/desmarca todos os 4 flags de uma vez
-router.put('/lancamento/:id/tudo-pago', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const pago = !!(req.body && req.body.pago);
-  try {
-    calc.marcarTudoPago(id, pago);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
+  if (b.peso_luz !== undefined) {
+    const n = toNum(b.peso_luz);
+    if (!Number.isFinite(n) || n < 0) throw new Error('Peso da luz inválido');
+    out.peso_luz = n;
   }
-});
+  if (b.ativa !== undefined) out.ativa = boolOuErro(b.ativa, 'ativa') ? 1 : 0;
+  if (b.observacoes !== undefined) out.observacoes = String(b.observacoes || '').trim() || null;
+  return out;
+}
 
-router.post('/mes/:id/recalcular', (req, res) => {
-  try {
-    calc.recalcularMes(parseInt(req.params.id, 10));
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
+router.get('/casas', h((req, res) => {
+  res.json(db.prepare('SELECT * FROM casas ORDER BY numero').all());
+}));
+
+router.post('/casas', h((req, res) => {
+  const c = validarCamposCasa(req.body || {}, { exigirNumero: true });
+  const jaExiste = db.prepare('SELECT id FROM casas WHERE numero = ?').get(c.numero);
+  if (jaExiste) throw new Error(`Já existe uma casa com o número ${c.numero}`);
+  const info = db.prepare(`
+    INSERT INTO casas (numero, inquilino, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(c.numero, c.inquilino ?? '', c.telefone ?? null, c.aluguel ?? 0,
+    c.moradores ?? 1, c.relogio ?? 1, c.peso_luz ?? 1, c.ativa ?? 1, c.observacoes ?? null);
+  res.json({ ok: true, id: info.lastInsertRowid });
+}));
+
+router.put('/casas/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(id);
+  if (!casa) return falha(res, 404, 'Casa não encontrada');
+  const c = validarCamposCasa(req.body || {});
+  const campos = Object.keys(c).filter((k) => CAMPOS_CASA.includes(k));
+  if (!campos.length) throw new Error('Nada para atualizar');
+  if (c.numero !== undefined && c.numero !== casa.numero) {
+    const outra = db.prepare('SELECT id FROM casas WHERE numero = ? AND id != ?').get(c.numero, id);
+    if (outra) throw new Error(`Já existe uma casa com o número ${c.numero}`);
   }
-});
-
-// Limpa todos os dados de UM mês: zera valores, flags de pagamento,
-// vencimentos, contas de luz, descontos e pagamentos dos pais.
-// MANTÉM: inquilino, vazia, aluguel_valor (esses são "estruturais" da casa).
-router.post('/mes/:id/limpar', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  try {
-    const tx = db.transaction(() => {
-      // Zera campos do mês
-      db.prepare(`
-        UPDATE meses SET
-          agua_total = 0,
-          agua_divisor = 10,
-          vencimento_agua = NULL,
-          vencimento_luz = NULL
-        WHERE id = ?
-      `).run(id);
-
-      // Zera contas de luz por relógio
-      db.prepare(`UPDATE contas_luz_relogio SET valor_total = 0 WHERE mes_id = ?`).run(id);
-
-      // Zera valores calculados e todas as flags de pagamento.
-      // Mantém: inquilino, vazia, aluguel_valor (config da casa).
-      db.prepare(`
-        UPDATE lancamentos SET
-          agua_valor = 0, agua_pago = 0,
-          luz_valor  = 0, luz_pago  = 0,
-          outros_valor = 0, outros_descricao = NULL, outros_pago = 0,
-          aluguel_pago = 0,
-          pago_em = NULL,
-          cobrar_obs = NULL
-        WHERE mes_id = ?
-      `).run(id);
-
-      // Apaga descontos e pagamentos dos pais deste mês
-      db.prepare(`DELETE FROM descontos_pais WHERE mes_id = ?`).run(id);
-      db.prepare(`DELETE FROM pagamentos_pais WHERE mes_id = ?`).run(id);
-    });
-    tx();
-    log(`[API] mês id=${id} limpo (zerado)`);
-    res.json({ ok: true });
-  } catch (e) {
-    error('[API] POST /mes/:id/limpar:', e.message);
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-// ─── DESCONTOS DOS PAIS ─────────────────────────────────────────
-router.post('/desconto', (req, res) => {
-  const b = req.body || {};
-  if (!b.mes_id || !b.destinatario || !b.descricao) {
-    return res.status(400).json({ ok: false, error: 'mes_id, destinatario, descricao obrigatórios' });
-  }
-  if (!['pai','mae'].includes(b.destinatario)) {
-    return res.status(400).json({ ok: false, error: 'destinatario deve ser pai ou mae' });
-  }
-  try {
-    const r = db.prepare(`
-      INSERT INTO descontos_pais (mes_id, destinatario, descricao, valor)
-      VALUES (?, ?, ?, ?)
-    `).run(b.mes_id, b.destinatario, b.descricao, Number(b.valor) || 0);
-    res.json({ ok: true, id: r.lastInsertRowid });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-router.delete('/desconto/:id', (req, res) => {
-  db.prepare('DELETE FROM descontos_pais WHERE id = ?').run(req.params.id);
+  const set = campos.map((k) => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE casas SET ${set} WHERE id = ?`).run(...campos.map((k) => c[k]), id);
   res.json({ ok: true });
-});
+}));
 
-router.put('/pagamento-pai', (req, res) => {
+router.delete('/casas/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(id);
+  if (!casa) return falha(res, 404, 'Casa não encontrada');
+  const temLanc = db.prepare('SELECT COUNT(*) AS n FROM lancamentos WHERE casa_id = ?').get(id).n;
+  if (temLanc > 0) {
+    db.prepare('UPDATE casas SET ativa = 0 WHERE id = ?').run(id);
+    return res.json({ ok: true, desativada: true });
+  }
+  db.prepare('DELETE FROM envios_wa WHERE casa_id = ?').run(id);
+  db.prepare('DELETE FROM casas WHERE id = ?').run(id);
+  res.json({ ok: true, removida: true });
+}));
+
+// ── Mês ──────────────────────────────────────────────────────────
+
+router.get('/mes/:ano/:mes', h((req, res) => {
+  const { ano, mes } = anoMesDaRota(req);
+  res.json(calc.carregarMes(ano, mes));
+}));
+
+router.put('/mes/:id', h((req, res) => {
+  const m = mesPorId(req.params.id);
+  exigirAberto(m);
   const b = req.body || {};
-  if (!b.mes_id || !b.destinatario) {
-    return res.status(400).json({ ok: false, error: 'mes_id e destinatario obrigatórios' });
+
+  const upd = {};
+  if (b.agua_total !== undefined) upd.agua_total = valorOuErro(b.agua_total, 'água (total)');
+  if (b.agua_vencimento !== undefined) upd.agua_vencimento = dataISOouNull(b.agua_vencimento, 'vencimento da água');
+  if (b.aluguel_vencimento !== undefined) upd.aluguel_vencimento = dataISOouNull(b.aluguel_vencimento, 'vencimento do aluguel');
+  if (b.observacoes !== undefined) upd.observacoes = String(b.observacoes || '').trim() || null;
+
+  let relogios = [];
+  if (b.relogios !== undefined) {
+    if (!Array.isArray(b.relogios)) throw new Error('Formato inválido em relógios');
+    relogios = b.relogios.map((r) => {
+      const num = toInt(r.relogio);
+      if (Number.isNaN(num) || num < 1) throw new Error('Relógio inválido');
+      return {
+        relogio: num,
+        valor_total: r.valor_total !== undefined ? valorOuErro(r.valor_total, `luz do relógio ${num}`) : undefined,
+        vencimento: r.vencimento !== undefined ? dataISOouNull(r.vencimento, `vencimento da luz do relógio ${num}`) : undefined,
+      };
+    });
   }
-  try {
-    db.prepare(`
-      INSERT INTO pagamentos_pais (mes_id, destinatario, pago, data_pagamento)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(mes_id, destinatario) DO UPDATE SET
-        pago = excluded.pago,
-        data_pagamento = excluded.data_pagamento
-    `).run(
-      b.mes_id, b.destinatario,
-      b.pago ? 1 : 0,
-      b.pago ? (b.data_pagamento || calc.hojeISO()) : null,
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
 
-// ─── DEVEDORES (relatório consolidado) ─────────────────────────
-// Lista todas as casas com lançamentos NÃO totalmente pagos,
-// agrupado por casa, com soma do que devem.
-router.get('/devedores', (req, res) => {
-  try {
-    const ini = calc.INICIO_PERIODO;
-    // Pega todos lançamentos com casa info
-    const todos = db.prepare(`
-      SELECT l.*,
-             m.ano, m.mes, m.vencimento_agua, m.vencimento_luz,
-             c.numero AS casa_numero, c.telefone
-        FROM lancamentos l
-        JOIN meses m ON m.id = l.mes_id
-        JOIN casas c ON c.id = l.casa_id
-       WHERE l.vazia = 0
-         AND ((m.ano > ?) OR (m.ano = ? AND m.mes >= ?))
-       ORDER BY c.numero, m.ano DESC, m.mes DESC
-    `).all(ini.ano, ini.ano, ini.mes);
-
-    // Filtra só os pendentes (que não estão totalmente pagos)
-    const pendentes = todos.filter(l => !calc.totalmentePago(l));
-
-    // Agrupa por casa
-    const porCasa = new Map();
-    for (const l of pendentes) {
-      const chave = l.casa_numero;
-      if (!porCasa.has(chave)) {
-        porCasa.set(chave, {
-          casa_numero: l.casa_numero,
-          inquilino_atual: l.inquilino,
-          telefone: l.telefone,
-          total_devido: 0,
-          meses: [],
-        });
-      }
-      const g = porCasa.get(chave);
-      // Soma só o que está em aberto
-      const aberto = (
-        (!l.agua_pago    ? (l.agua_valor    || 0) : 0) +
-        (!l.luz_pago     ? (l.luz_valor     || 0) : 0) +
-        (!l.outros_pago  ? (l.outros_valor  || 0) : 0) +
-        (!l.aluguel_pago ? (l.aluguel_valor || 0) : 0)
-      );
-      g.total_devido += aberto;
-      g.meses.push({
-        lancamento_id: l.id,
-        ano: l.ano,
-        mes: l.mes,
-        nome_mes: calc.nomeMes(l.mes),
-        agua: { valor: l.agua_valor || 0,    pago: !!l.agua_pago },
-        luz:  { valor: l.luz_valor  || 0,    pago: !!l.luz_pago  },
-        outros: {
-          valor: l.outros_valor || 0,
-          descricao: l.outros_descricao,
-          pago: !!l.outros_pago,
-        },
-        aluguel: { valor: l.aluguel_valor || 0, pago: !!l.aluguel_pago },
-        total_aberto: calc.round2(aberto),
-        cobrar_obs: l.cobrar_obs,
-      });
+  const tx = db.transaction(() => {
+    const campos = Object.keys(upd);
+    if (campos.length) {
+      const set = campos.map((k) => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE meses SET ${set} WHERE id = ?`).run(...campos.map((k) => upd[k]), m.id);
     }
+    for (const r of relogios) {
+      db.prepare('INSERT OR IGNORE INTO contas_luz (mes_id, relogio) VALUES (?, ?)').run(m.id, r.relogio);
+      if (r.valor_total !== undefined) {
+        db.prepare('UPDATE contas_luz SET valor_total = ? WHERE mes_id = ? AND relogio = ?')
+          .run(r.valor_total, m.id, r.relogio);
+      }
+      if (r.vencimento !== undefined) {
+        db.prepare('UPDATE contas_luz SET vencimento = ? WHERE mes_id = ? AND relogio = ?')
+          .run(r.vencimento, m.id, r.relogio);
+      }
+    }
+  });
+  tx();
 
-    const lista = [...porCasa.values()].map(g => ({
-      ...g,
-      total_devido: calc.round2(g.total_devido),
-    }));
+  calc.recalcularMes(m.id);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
 
-    // Ordena por valor devido (maior primeiro)
-    lista.sort((a, b) => b.total_devido - a.total_devido);
+router.put('/lancamento/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const lanc = db.prepare('SELECT * FROM lancamentos WHERE id = ?').get(id);
+  if (!lanc) return falha(res, 404, 'Lançamento não encontrado');
+  const m = mesPorId(lanc.mes_id);
+  exigirAberto(m);
+  const b = req.body || {};
 
-    res.json({ devedores: lista });
-  } catch (e) {
-    error('[API] GET /devedores:', e.message);
-    res.status(500).json({ error: e.message });
+  const upd = {};
+  if (b.inquilino !== undefined) upd.inquilino = String(b.inquilino || '').trim();
+  if (b.vazia !== undefined) upd.vazia = boolOuErro(b.vazia, 'vazia') ? 1 : 0;
+  if (b.moradores !== undefined) {
+    const n = toInt(b.moradores);
+    if (Number.isNaN(n) || n < 0) throw new Error('Número de moradores inválido');
+    upd.moradores = n;
   }
-});
+  if (b.outros_valor !== undefined) upd.outros_valor = valorOuErro(b.outros_valor, 'outros');
+  if (b.outros_descricao !== undefined) upd.outros_descricao = String(b.outros_descricao || '').trim() || null;
+  if (b.aluguel_valor !== undefined) upd.aluguel_valor = valorOuErro(b.aluguel_valor, 'aluguel');
+  if (b.obs !== undefined) upd.obs = String(b.obs || '').trim() || null;
 
-// ─── RECIBOS (com vencimentos, telefone e mensagem WA) ─────────
-router.get('/recibos/:ano/:mes', (req, res) => {
-  const data = calc.carregarMes(parseInt(req.params.ano, 10), parseInt(req.params.mes, 10));
-  if (!data) return res.status(404).json({ error: 'Mês não encontrado' });
+  // casa vazia não paga aluguel
+  if (upd.vazia === 1) upd.aluguel_valor = 0;
 
-  const nomeMesStr = calc.nomeMes(data.mes.mes);
-  const recibos = data.lancamentos.map(l => {
-    const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0);
-    const inquilino = l.inquilino || '—';
+  const campos = Object.keys(upd);
+  if (!campos.length) throw new Error('Nada para atualizar');
+  const set = campos.map((k) => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE lancamentos SET ${set} WHERE id = ?`).run(...campos.map((k) => upd[k]), id);
+
+  calc.recalcularMes(m.id); // rateio de água/luz pode ter mudado
+  calc.atualizarQuitado(id);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
+
+router.put('/lancamento/:id/pago', h((req, res) => {
+  const id = toInt(req.params.id);
+  const lanc = db.prepare('SELECT * FROM lancamentos WHERE id = ?').get(id);
+  if (!lanc) return falha(res, 404, 'Lançamento não encontrado');
+  const m = mesPorId(lanc.mes_id);
+  exigirAberto(m);
+  const b = req.body || {};
+  const itensValidos = ['agua', 'luz', 'outros', 'aluguel', 'tudo'];
+  if (!itensValidos.includes(b.item)) throw new Error('Item inválido (use agua, luz, outros, aluguel ou tudo)');
+  const pago = boolOuErro(b.pago, 'pago');
+  calc.marcarPago(id, b.item, pago);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
+
+router.post('/mes/:id/limpar', h((req, res) => {
+  const m = mesPorId(req.params.id);
+  exigirAberto(m);
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE meses SET agua_total = 0, agua_vencimento = NULL,
+      aluguel_vencimento = NULL WHERE id = ?`).run(m.id);
+    db.prepare('UPDATE contas_luz SET valor_total = 0, vencimento = NULL WHERE mes_id = ?').run(m.id);
+    // mantém inquilino, vazia, moradores e aluguel_valor
+    db.prepare(`UPDATE lancamentos SET
+      agua_valor = 0, agua_pago = 0, agua_pago_em = NULL,
+      luz_valor = 0, luz_pago = 0, luz_pago_em = NULL,
+      outros_valor = 0, outros_descricao = NULL, outros_pago = 0, outros_pago_em = NULL,
+      aluguel_pago = 0, aluguel_pago_em = NULL,
+      quitado_em = NULL
+      WHERE mes_id = ?`).run(m.id);
+    db.prepare('DELETE FROM descontos_pais WHERE mes_id = ?').run(m.id);
+    db.prepare('DELETE FROM pagamentos_pais WHERE mes_id = ?').run(m.id);
+  });
+  tx();
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
+
+router.put('/mes/:id/fechar', h((req, res) => {
+  const m = mesPorId(req.params.id);
+  const fechado = boolOuErro((req.body || {}).fechado, 'fechado') ? 1 : 0;
+  db.prepare('UPDATE meses SET fechado = ? WHERE id = ?').run(fechado, m.id);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
+
+// ── Mensagens de WhatsApp ────────────────────────────────────────
+
+function modeloOuErro(v) {
+  const modelo = v || 'cobranca';
+  if (!msgs.MODELOS.includes(modelo)) throw new Error('Modelo de mensagem inválido');
+  return modelo;
+}
+
+router.get('/mensagens/:ano/:mes', h((req, res) => {
+  const { ano, mes } = anoMesDaRota(req);
+  const modelo = modeloOuErro(req.query.modelo);
+  res.json(msgs.gerarMensagensDoMes(ano, mes, modelo));
+}));
+
+router.post('/mensagens/:ano/:mes/marcar-enviado', h((req, res) => {
+  const { ano, mes } = anoMesDaRota(req);
+  const b = req.body || {};
+  const modelo = modeloOuErro(b.modelo);
+  if (!Array.isArray(b.casa_ids) || !b.casa_ids.length) {
+    throw new Error('Informe as casas (casa_ids)');
+  }
+  const casaIds = b.casa_ids.map((v) => {
+    const n = toInt(v);
+    if (Number.isNaN(n)) throw new Error('Casa inválida em casa_ids');
+    return n;
+  });
+  const mesRow = calc.garantirMes(ano, mes);
+  const agora = new Date().toISOString();
+  const up = db.prepare(`
+    INSERT INTO envios_wa (mes_id, casa_id, enviado_em, modelo) VALUES (?, ?, ?, ?)
+    ON CONFLICT(mes_id, casa_id, modelo) DO UPDATE SET enviado_em = excluded.enviado_em
+  `);
+  const tx = db.transaction(() => {
+    for (const casaId of casaIds) {
+      const casa = db.prepare('SELECT id FROM casas WHERE id = ?').get(casaId);
+      if (!casa) throw new Error(`Casa ${casaId} não encontrada`);
+      up.run(mesRow.id, casaId, agora, modelo);
+    }
+  });
+  tx();
+  res.json({ ok: true, enviados: casaIds.length });
+}));
+
+router.post('/mensagens/teste', h((req, res) => {
+  const b = req.body || {};
+  const ano = toInt(b.ano);
+  const mes = toInt(b.mes);
+  if (Number.isNaN(ano) || Number.isNaN(mes) || mes < 1 || mes > 12) throw new Error('Mês inválido');
+  const modelo = modeloOuErro(b.modelo);
+
+  let telefoneNormalizado = null;
+  if (b.telefone !== undefined && b.telefone !== null && String(b.telefone).trim() !== '') {
+    telefoneNormalizado = msgs.normalizarTelefone(b.telefone);
+    if (!telefoneNormalizado) throw new Error('Telefone inválido');
+  }
+
+  let texto;
+  if (b.casa_id !== undefined && b.casa_id !== null) {
+    const payload = calc.carregarMes(ano, mes);
+    const casa = payload.casas.find((c) => c.casa_id === toInt(b.casa_id));
+    if (!casa) return falha(res, 404, 'Casa não encontrada no mês');
+    if (casa.vazia) throw new Error('Casa vaga não gera mensagem');
+    if (!telefoneNormalizado) telefoneNormalizado = msgs.normalizarTelefone(casa.telefone);
+    texto = msgs.gerarMensagem(msgs.ctxDaCasa(casa, payload), modelo);
+  } else {
+    // casa fictícia de exemplo — nunca grava nada
+    const ctx = {
+      casa_str: '00',
+      inquilino: 'Teste',
+      label: calc.labelMes(ano, mes),
+      moradores: 1,
+      relogio: 1,
+      itens: {
+        agua: { valor: 45.9, pago: false, pago_em: null, vencimento: null },
+        luz: { valor: 78.3, pago: false, pago_em: null, vencimento: null },
+        aluguel: { valor: 350, pago: false, pago_em: null, vencimento: null },
+        outros: { valor: 0, pago: false, pago_em: null, descricao: null },
+      },
+    };
+    texto = msgs.gerarMensagem(ctx, modelo);
+  }
+
+  res.json({
+    ok: true,
+    texto,
+    wa_url: msgs.waUrl(telefoneNormalizado, texto),
+    telefone_normalizado: telefoneNormalizado,
+  });
+}));
+
+// ── Histórico ────────────────────────────────────────────────────
+
+function resumoDoMes(mesRow) {
+  const lancs = db.prepare('SELECT * FROM lancamentos WHERE mes_id = ?').all(mesRow.id);
+  const luzTotal = db.prepare(
+    'SELECT COALESCE(SUM(valor_total), 0) AS s FROM contas_luz WHERE mes_id = ?').get(mesRow.id).s;
+  const itens = ['agua', 'luz', 'outros', 'aluguel'];
+  let cobrado = 0; let recebido = 0;
+  let ocupadas = 0; let pagas = 0;
+  for (const l of lancs) {
+    for (const it of itens) {
+      cobrado += l[`${it}_valor`];
+      if (l[`${it}_pago`]) recebido += l[`${it}_valor`];
+    }
+    if (!l.vazia) {
+      ocupadas += 1;
+      if (calc.totalmentePago(l)) pagas += 1;
+    }
+  }
+  return {
+    mes_id: mesRow.id,
+    ano: mesRow.ano,
+    mes: mesRow.mes,
+    label: calc.labelMes(mesRow.ano, mesRow.mes),
+    agua_total: calc.round2(mesRow.agua_total),
+    luz_total: calc.round2(luzTotal),
+    total_cobrado: calc.round2(cobrado),
+    total_recebido: calc.round2(recebido),
+    total_aberto: calc.round2(cobrado - recebido),
+    casas_ocupadas: ocupadas,
+    casas_pagas: pagas,
+    casas_devendo: ocupadas - pagas,
+    fechado: mesRow.fechado,
+  };
+}
+
+router.get('/historico', h((req, res) => {
+  const ini = calc.INICIO_PERIODO;
+  const mesesRows = db.prepare(`
+    SELECT * FROM meses WHERE (ano * 100 + mes) >= ? ORDER BY ano DESC, mes DESC
+  `).all(ini.ano * 100 + ini.mes);
+  const meses = mesesRows.map(resumoDoMes);
+  res.json({
+    meses,
+    totais: {
+      total_cobrado: calc.round2(meses.reduce((s, m) => s + m.total_cobrado, 0)),
+      total_recebido: calc.round2(meses.reduce((s, m) => s + m.total_recebido, 0)),
+      total_aberto: calc.round2(meses.reduce((s, m) => s + m.total_aberto, 0)),
+    },
+  });
+}));
+
+router.get('/historico/casa/:numero', h((req, res) => {
+  const numero = toInt(req.params.numero);
+  const casa = db.prepare('SELECT * FROM casas WHERE numero = ?').get(numero);
+  if (!casa) return falha(res, 404, 'Casa não encontrada');
+  const ini = calc.INICIO_PERIODO;
+  const rows = db.prepare(`
+    SELECT l.*, m.ano, m.mes FROM lancamentos l
+    JOIN meses m ON m.id = l.mes_id
+    WHERE l.casa_id = ? AND (m.ano * 100 + m.mes) >= ?
+    ORDER BY m.ano, m.mes
+  `).all(casa.id, ini.ano * 100 + ini.mes);
+  const itensNomes = ['agua', 'luz', 'outros', 'aluguel'];
+  let cobrado = 0; let recebido = 0;
+  const itens = rows.map((l) => {
+    let totalMes = 0; let totalPago = 0;
+    for (const it of itensNomes) {
+      totalMes += l[`${it}_valor`];
+      if (l[`${it}_pago`]) totalPago += l[`${it}_valor`];
+    }
+    cobrado += totalMes;
+    recebido += totalPago;
     return {
-      casa: l.casa_numero,
-      casa_str: String(l.casa_numero).padStart(2, '0'),
-      inquilino,
-      vazia: !!l.vazia,
-      ref: `${nomeMesStr}/${data.mes.ano}`,
-      agua: l.agua_valor,
-      agua_pago: !!l.agua_pago,
-      luz: l.luz_valor,
-      luz_pago: !!l.luz_pago,
-      outros: l.outros_valor,
-      outros_descricao: l.outros_descricao,
-      outros_pago: !!l.outros_pago,
-      total: calc.round2(total),
-      tudo_pago: !!l.tudo_pago,
-      pago_em: l.pago_em,
-      telefone: l.casa_telefone,
-      vencimento_agua: data.mes.vencimento_agua,
-      vencimento_luz:  data.mes.vencimento_luz,
-      mensagem_whatsapp: gerarMensagemWA(l, nomeMesStr, data.mes),
+      ano: l.ano,
+      mes: l.mes,
+      label: calc.labelMes(l.ano, l.mes),
+      agua_valor: calc.round2(l.agua_valor),
+      luz_valor: calc.round2(l.luz_valor),
+      outros_valor: calc.round2(l.outros_valor),
+      aluguel_valor: calc.round2(l.aluguel_valor),
+      total_mes: calc.round2(totalMes),
+      total_aberto: calc.round2(totalMes - totalPago),
+      tudo_pago: calc.totalmentePago(l),
+      quitado_em: l.quitado_em || null,
     };
   });
+  res.json({
+    casa,
+    itens,
+    totais: {
+      cobrado: calc.round2(cobrado),
+      recebido: calc.round2(recebido),
+      aberto: calc.round2(cobrado - recebido),
+    },
+  });
+}));
 
-  res.json({ mes: data.mes, recibos });
-});
+// ── Repasse pai/mãe ──────────────────────────────────────────────
 
-// ─── HISTÓRICO (relatório consolidado por filtros) ─────────────
-router.get('/historico', (req, res) => {
-  try {
-    const ini = calc.INICIO_PERIODO;
-    const ano = req.query.ano ? parseInt(req.query.ano, 10) : null;
-    const casa = req.query.casa ? parseInt(req.query.casa, 10) : null;
-    const status = (req.query.status || 'todos').toLowerCase();
+function destinatarioOuErro(v) {
+  if (v !== 'pai' && v !== 'mae') throw new Error("Destinatário inválido (use 'pai' ou 'mae')");
+  return v;
+}
 
-    const where = ['((m.ano > ?) OR (m.ano = ? AND m.mes >= ?))'];
-    const params = [ini.ano, ini.ano, ini.mes];
-    if (Number.isFinite(ano) && ano) {
-      where.push('m.ano = ?');
-      params.push(ano);
-    }
-    if (Number.isFinite(casa) && casa) {
-      where.push('c.numero = ?');
-      params.push(casa);
-    }
+router.post('/desconto', h((req, res) => {
+  const b = req.body || {};
+  const m = mesPorId(b.mes_id);
+  const destinatario = destinatarioOuErro(b.destinatario);
+  const descricao = String(b.descricao || '').trim();
+  if (!descricao) throw new Error('Informe a descrição do desconto');
+  const valor = valorOuErro(b.valor, 'valor do desconto');
+  db.prepare('INSERT INTO descontos_pais (mes_id, destinatario, descricao, valor) VALUES (?, ?, ?, ?)')
+    .run(m.id, destinatario, descricao, valor);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
 
-    const rows = db.prepare(`
-      SELECT l.*,
-             m.ano, m.mes, m.vencimento_agua, m.vencimento_luz,
-             c.numero AS casa_numero
-        FROM lancamentos l
-        JOIN meses m ON m.id = l.mes_id
-        JOIN casas c ON c.id = l.casa_id
-       WHERE ${where.join(' AND ')}
-       ORDER BY m.ano DESC, m.mes DESC, c.numero ASC
-    `).all(...params);
+router.delete('/desconto/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const d = db.prepare('SELECT * FROM descontos_pais WHERE id = ?').get(id);
+  if (!d) return falha(res, 404, 'Desconto não encontrado');
+  db.prepare('DELETE FROM descontos_pais WHERE id = ?').run(id);
+  res.json({ ok: true, mes_completo: mesCompleto(d.mes_id) });
+}));
 
-    const itens = [];
-    let recebido = 0, em_aberto = 0, total_cobrado = 0;
-    for (const l of rows) {
-      const tudoPago = calc.totalmentePago(l);
-      if (status === 'pagos' && !tudoPago) continue;
-      if (status === 'devendo' && (l.vazia || tudoPago)) continue;
+router.put('/pagamento-pai', h((req, res) => {
+  const b = req.body || {};
+  const m = mesPorId(b.mes_id);
+  const destinatario = destinatarioOuErro(b.destinatario);
+  const pago = boolOuErro(b.pago, 'pago') ? 1 : 0;
+  const data = pago ? calc.hojeISO() : null;
+  db.prepare(`
+    INSERT INTO pagamentos_pais (mes_id, destinatario, pago, data_pagamento) VALUES (?, ?, ?, ?)
+    ON CONFLICT(mes_id, destinatario) DO UPDATE SET pago = excluded.pago, data_pagamento = excluded.data_pagamento
+  `).run(m.id, destinatario, pago, data);
+  res.json({ ok: true, mes_completo: mesCompleto(m.id) });
+}));
 
-      const cobrado = (l.agua_valor || 0) + (l.luz_valor || 0)
-                    + (l.outros_valor || 0) + (l.aluguel_valor || 0);
-      const aberto = (
-        (!l.agua_pago    ? (l.agua_valor    || 0) : 0) +
-        (!l.luz_pago     ? (l.luz_valor     || 0) : 0) +
-        (!l.outros_pago  ? (l.outros_valor  || 0) : 0) +
-        (!l.aluguel_pago ? (l.aluguel_valor || 0) : 0)
-      );
-      const pago = cobrado - aberto;
+// ── Regras ───────────────────────────────────────────────────────
 
-      total_cobrado += cobrado;
-      recebido      += pago;
-      if (!l.vazia) em_aberto += aberto;
+router.get('/regras', h((req, res) => {
+  res.json({ regras: db.prepare('SELECT * FROM regras ORDER BY ordem, id').all() });
+}));
 
-      itens.push({
-        mes_id: l.mes_id,
-        ano: l.ano,
-        mes: l.mes,
-        nome_mes: calc.nomeMes(l.mes),
-        ref: `${calc.nomeMes(l.mes)}/${l.ano}`,
-        casa_numero: l.casa_numero,
-        casa_str: String(l.casa_numero).padStart(2, '0'),
-        inquilino: l.inquilino || '',
-        vazia: !!l.vazia,
-        agua_valor: calc.round2(l.agua_valor || 0),
-        agua_pago: !!l.agua_pago,
-        luz_valor: calc.round2(l.luz_valor || 0),
-        luz_pago: !!l.luz_pago,
-        outros_valor: calc.round2(l.outros_valor || 0),
-        outros_descricao: l.outros_descricao,
-        outros_pago: !!l.outros_pago,
-        aluguel_valor: calc.round2(l.aluguel_valor || 0),
-        aluguel_pago: !!l.aluguel_pago,
-        total_cobrado: calc.round2(cobrado),
-        total_aberto: calc.round2(aberto),
-        tudo_pago: tudoPago,
-        pago_em: l.pago_em,
-        vencimento_agua: l.vencimento_agua,
-        vencimento_luz: l.vencimento_luz,
-      });
-    }
+router.get('/regras/texto', h((req, res) => {
+  res.json({ texto: msgs.textoRegras() });
+}));
 
-    res.json({
-      itens,
-      totais: {
-        recebido: calc.round2(recebido),
-        em_aberto: calc.round2(em_aberto),
-        total_cobrado: calc.round2(total_cobrado),
-        qtd_lancamentos: itens.length,
-      },
+router.post('/regras', h((req, res) => {
+  const b = req.body || {};
+  const titulo = String(b.titulo || '').trim();
+  const texto = String(b.texto || '').trim();
+  if (!titulo) throw new Error('Informe o título da regra');
+  if (!texto) throw new Error('Informe o texto da regra');
+  const categoria = String(b.categoria || '').trim() || 'convivencia';
+  const ordem = (db.prepare('SELECT COALESCE(MAX(ordem), 0) AS m FROM regras').get().m) + 1;
+  const info = db.prepare('INSERT INTO regras (ordem, categoria, titulo, texto) VALUES (?, ?, ?, ?)')
+    .run(ordem, categoria, titulo, texto);
+  res.json({ ok: true, id: info.lastInsertRowid });
+}));
+
+router.post('/regras/reordenar', h((req, res) => {
+  const ids = (req.body || {}).ids;
+  if (!Array.isArray(ids) || !ids.length) throw new Error('Informe a nova ordem (ids)');
+  const upd = db.prepare('UPDATE regras SET ordem = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    ids.forEach((id, i) => {
+      const n = toInt(id);
+      if (Number.isNaN(n)) throw new Error('Id inválido em ids');
+      upd.run(i + 1, n);
     });
-  } catch (e) {
-    error('[API] GET /historico:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
+  });
+  tx();
+  res.json({ ok: true });
+}));
 
-function brl(n) {
-  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
+router.put('/regras/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const regra = db.prepare('SELECT * FROM regras WHERE id = ?').get(id);
+  if (!regra) return falha(res, 404, 'Regra não encontrada');
+  const b = req.body || {};
+  const upd = {};
+  if (b.titulo !== undefined) {
+    upd.titulo = String(b.titulo || '').trim();
+    if (!upd.titulo) throw new Error('Informe o título da regra');
+  }
+  if (b.texto !== undefined) {
+    upd.texto = String(b.texto || '').trim();
+    if (!upd.texto) throw new Error('Informe o texto da regra');
+  }
+  if (b.categoria !== undefined) upd.categoria = String(b.categoria || '').trim() || 'convivencia';
+  if (b.ativa !== undefined) upd.ativa = boolOuErro(b.ativa, 'ativa') ? 1 : 0;
+  if (b.ordem !== undefined) {
+    const n = toInt(b.ordem);
+    if (Number.isNaN(n) || n < 0) throw new Error('Ordem inválida');
+    upd.ordem = n;
+  }
+  const campos = Object.keys(upd);
+  if (!campos.length) throw new Error('Nada para atualizar');
+  const set = campos.map((k) => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE regras SET ${set} WHERE id = ?`).run(...campos.map((k) => upd[k]), id);
+  res.json({ ok: true });
+}));
 
-function gerarMensagemWA(l, nomeMes, mes) {
-  const inquilino = l.inquilino || '';
-  const casaStr = String(l.casa_numero).padStart(2, '0');
-  const linhas = [];
-  linhas.push(`Olá ${inquilino} (Casa ${casaStr}) 🏠`);
-  linhas.push(`Segue a conta de *${nomeMes}/${mes.ano}*:`);
-  linhas.push('');
-  if (l.agua_valor > 0) {
-    let s = `💧 Água: *${brl(l.agua_valor)}*`;
-    if (mes.vencimento_agua) s += ` — pagar até dia ${mes.vencimento_agua}`;
-    linhas.push(s);
-  }
-  if (l.luz_valor > 0) {
-    let s = `💡 Luz: *${brl(l.luz_valor)}*`;
-    if (mes.vencimento_luz) s += ` — pagar até dia ${mes.vencimento_luz}`;
-    linhas.push(s);
-  }
-  if (l.outros_valor > 0) {
-    linhas.push(`📦 ${l.outros_descricao || 'Outros'}: *${brl(l.outros_valor)}*`);
-  }
-  const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0);
-  linhas.push('');
-  linhas.push(`💰 TOTAL: *${brl(total)}*`);
-  linhas.push('');
-  linhas.push('Obrigado! 🙏');
-  return linhas.join('\n');
-}
+router.delete('/regras/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  const regra = db.prepare('SELECT * FROM regras WHERE id = ?').get(id);
+  if (!regra) return falha(res, 404, 'Regra não encontrada');
+  db.prepare('DELETE FROM regras WHERE id = ?').run(id);
+  res.json({ ok: true });
+}));
+
+// ── fallback ─────────────────────────────────────────────────────
+
+router.use((req, res) => falha(res, 404, 'Rota não encontrada'));
 
 module.exports = router;

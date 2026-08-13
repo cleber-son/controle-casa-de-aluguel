@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — Repasse</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* regras específicas desta página — sempre com os tokens do design system */
+    .desc-item { display:flex; align-items:center; gap:10px; padding:10px 0;
+                 border-bottom:1px solid var(--line) }
+    .desc-item:last-child { border-bottom:0 }
+    .desc-txt { flex:1; min-width:0 }
+    .desc-form { display:grid; grid-template-columns:1fr; gap:10px; margin-top:12px }
+    /* 3 colunas só quando a coluna do pai/mãe é larga o bastante */
+    @media (min-width:1040px) { .desc-form { grid-template-columns:1fr 130px auto; align-items:end } }
+    .repasse-cols { display:grid; gap:var(--gap); grid-template-columns:1fr }
+    .repasse-cols > .card + .card { margin-top:0 }
+    @media (min-width:900px) { .repasse-cols { grid-template-columns:repeat(2,minmax(0,1fr)) } }
+    .linha-total { display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+                   padding:8px 0; border-top:1px solid var(--line) }
+    .liquido-box { margin-top:12px; padding:14px; border-radius:var(--r);
+                   background:var(--card-2); border:1px solid var(--line) }
+    .sk-line { height:14px; border-radius:var(--r-sm); margin:10px 0 }
+    .sk-line.lg { height:26px; width:50% }
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div class="stack">
+      <div class="row wrap">
+        <div class="col">
+          <h1 class="card-title">Repasse pai / mãe</h1>
+          <p class="muted small">O aluguel recebido no mês é dividido meio a meio. De cada metade saem os
+            descontos lançados aqui, e o que sobra é o valor a repassar.</p>
+        </div>
+      </div>
+
+      <div id="tabs"></div>
+      <div id="conteudo" class="stack"></div>
+    </div>
+  </main>
+
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    App.mount('repasse');
+
+    var elTabs = document.getElementById('tabs');
+    var elConteudo = document.getElementById('conteudo');
+
+    var atual = App.mesAtual();
+    var state = {
+      ano: atual.ano,
+      mes: atual.mes,
+      meses: [],
+      dados: null,
+      carregando: true,
+      // texto digitado nos formulários de desconto (preservado entre re-renders)
+      novo: { pai: { descricao: '', valor: '' }, mae: { descricao: '', valor: '' } }
+    };
+
+    var NOMES = { pai: 'Pai', mae: 'Mãe' };
+
+    function esc(s) { return App.escapeHtml(s == null ? '' : String(s)); }
+
+    function moedaNum(v) {
+      if (typeof v === 'number') return v;
+      var s = String(v == null ? '' : v).trim().replace(/[^\d.,-]/g, '');
+      if (!s) return 0;
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    }
+    function casaStr(n) { n = parseInt(n, 10); return isNaN(n) ? '?' : (n < 10 ? '0' + n : '' + n); }
+
+    /* ---------- meses ---------- */
+
+    function chaveMes(a, m) { return a * 100 + m; }
+
+    function renderTabs() {
+      if (!state.meses.length) { elTabs.innerHTML = ''; return; }
+      var h = '<div class="tabs tabs-scroll" role="tablist" aria-label="Meses">';
+      state.meses.forEach(function (m) {
+        var ativo = (m.ano === state.ano && m.mes === state.mes);
+        h += '<button class="tab' + (ativo ? ' is-active' : '') + '" type="button" role="tab" ' +
+             'aria-selected="' + (ativo ? 'true' : 'false') + '" ' +
+             'data-acao="mes" data-ano="' + m.ano + '" data-mes="' + m.mes + '">' +
+             esc(m.label || App.mesLabel(m.ano, m.mes)) +
+             (m.fechado ? ' 🔒' : '') + '</button>';
+      });
+      h += '</div>';
+      elTabs.innerHTML = h;
+      var ativo = elTabs.querySelector('.tab.is-active');
+      if (ativo && ativo.scrollIntoView) ativo.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+
+    function carregarMeses() {
+      return App.api('/bootstrap').then(function (b) {
+        state.meses = (b && b.meses) || [];
+        var existe = state.meses.some(function (m) { return m.ano === state.ano && m.mes === state.mes; });
+        if (!existe) {
+          state.meses.push({ ano: state.ano, mes: state.mes, label: App.mesLabel(state.ano, state.mes), fechado: 0 });
+          state.meses.sort(function (a, b2) { return chaveMes(a.ano, a.mes) - chaveMes(b2.ano, b2.mes); });
+        }
+        renderTabs();
+      }).catch(function () {
+        // sem bootstrap ainda dá pra trabalhar com o mês selecionado
+        state.meses = [{ ano: state.ano, mes: state.mes, label: App.mesLabel(state.ano, state.mes), fechado: 0 }];
+        renderTabs();
+      });
+    }
+
+    /* ---------- carregar mês ---------- */
+
+    function skeleton() {
+      elConteudo.innerHTML =
+        '<section class="card"><div class="card-body">' +
+        '<div class="skeleton sk-line lg"></div><div class="skeleton sk-line"></div></div></section>' +
+        '<div class="repasse-cols">' +
+        '<section class="card"><div class="card-body">' +
+        '<div class="skeleton sk-line lg"></div><div class="skeleton sk-line"></div>' +
+        '<div class="skeleton sk-line"></div><div class="skeleton sk-line"></div></div></section>' +
+        '<section class="card"><div class="card-body">' +
+        '<div class="skeleton sk-line lg"></div><div class="skeleton sk-line"></div>' +
+        '<div class="skeleton sk-line"></div><div class="skeleton sk-line"></div></div></section>' +
+        '</div>';
+    }
+
+    function carregarMes() {
+      state.carregando = true;
+      skeleton();
+      return App.api('/mes/' + state.ano + '/' + state.mes).then(function (d) {
+        state.carregando = false;
+        state.dados = d;
+        render();
+      }).catch(function () {
+        state.carregando = false;
+        elConteudo.innerHTML =
+          '<div class="empty"><div class="empty-icon">⚠️</div>' +
+          '<p class="strong">Não foi possível carregar o mês.</p>' +
+          '<p class="muted small">Verifique a conexão com o servidor e tente de novo.</p>' +
+          '<button class="btn btn-primary" type="button" data-acao="recarregar">Tentar de novo</button></div>';
+      });
+    }
+
+    // toda escrita devolve mes_completo: re-renderiza sem recarregar a página
+    function aplicar(r) {
+      if (r && r.mes_completo) { state.dados = r.mes_completo; render(); }
+      else carregarMes();
+    }
+
+    /* ---------- render ---------- */
+
+    function repasse() {
+      var t = (state.dados && state.dados.totais && state.dados.totais.repasse) || {};
+      return {
+        bruto: { pai: Number(t.bruto_pai) || 0, mae: Number(t.bruto_mae) || 0 },
+        desconto: { pai: Number(t.desconto_pai) || 0, mae: Number(t.desconto_mae) || 0 },
+        liquido: { pai: Number(t.liquido_pai) || 0, mae: Number(t.liquido_mae) || 0 }
+      };
+    }
+
+    function pagamentoDe(dest) {
+      var lista = (state.dados && state.dados.pagamentos_pais) || [];
+      for (var i = 0; i < lista.length; i++) if (lista[i].destinatario === dest) return lista[i];
+      return { destinatario: dest, pago: 0, data_pagamento: null };
+    }
+
+    function descontosDe(dest) {
+      return ((state.dados && state.dados.descontos) || []).filter(function (d) { return d.destinatario === dest; });
+    }
+
+    function aluguelDoMes() {
+      var casas = (state.dados && state.dados.casas) || [];
+      var recebido = 0, aberto = 0, pagas = 0, ocupadas = 0, faltam = [];
+      casas.forEach(function (c) {
+        if (c.vazia) return;
+        var v = Number(c.aluguel_valor) || 0;
+        if (v <= 0) return;
+        ocupadas++;
+        if (c.aluguel_pago) { recebido += v; pagas++; }
+        else { aberto += v; faltam.push(c); }
+      });
+      return { recebido: recebido, aberto: aberto, pagas: pagas, ocupadas: ocupadas, faltam: faltam };
+    }
+
+    function stat(label, valor, hint) {
+      return '<div class="stat"><div class="stat-label">' + esc(label) + '</div>' +
+             '<div class="stat-value">' + esc(valor) + '</div>' +
+             (hint ? '<div class="stat-hint">' + esc(hint) + '</div>' : '') + '</div>';
+    }
+
+    function render() {
+      renderTabs();
+      var d = state.dados;
+      if (!d) return;
+
+      var r = repasse();
+      var al = aluguelDoMes();
+      var label = (d.mes && d.mes.label) || App.mesLabel(state.ano, state.mes);
+      var h = '';
+
+      /* --- topo: de onde sai o dinheiro --- */
+      h += '<section class="card card-accent-aluguel">' +
+           '<div class="card-head"><div>' +
+           '<div class="card-title">Aluguel recebido em ' + esc(label) + '</div>' +
+           '<div class="card-sub">O bruto de cada um é 50% do aluguel <span class="strong">efetivamente pago</span> ' +
+           'no mês. Aluguel ainda em aberto não entra na conta.</div>' +
+           '</div><div class="right">' +
+           (d.mes && d.mes.fechado ? '<span class="badge badge-dim">mês fechado</span>' : '') +
+           '</div></div>' +
+           '<div class="card-body"><div class="stat-row">' +
+           stat('Aluguel recebido', App.money(al.recebido), al.pagas + ' de ' + al.ocupadas + ' casa(s) com aluguel pago') +
+           stat('Ainda em aberto', App.money(al.aberto), al.aberto > 0 ? 'Entra no repasse quando for marcado como pago' : 'Nada em aberto') +
+           stat('Metade de cada um', App.money(r.bruto.pai), '50% do que já entrou') +
+           stat('Total a repassar', App.money(r.liquido.pai + r.liquido.mae), 'Depois dos descontos') +
+           '</div>';
+
+      if (al.aberto > 0) {
+        h += '<p class="muted small" style="margin-top:10px">Falta receber o aluguel de: ' +
+             al.faltam.map(function (c) {
+               return '<span class="badge badge-dim">Casa ' + casaStr(c.numero) + ' — ' + App.money(Number(c.aluguel_valor) || 0) + '</span>';
+             }).join(' ') + '</p>';
+      }
+      if (al.recebido === 0) {
+        h += '<p class="muted small" style="margin-top:10px">Nenhum aluguel pago neste mês ainda — ' +
+             'os valores brutos ficam zerados. Marque os aluguéis como pagos na tela do Mês.</p>';
+      }
+
+      h += '</div>'; // fecha card-body
+      h += '<div class="card-foot"><button class="btn btn-ghost btn-sm" type="button" data-acao="copiar">Copiar resumo</button></div>';
+      h += '</section>';
+
+      /* --- colunas pai / mãe --- */
+      h += '<div class="repasse-cols">' + coluna('pai', r, al) + coluna('mae', r, al) + '</div>';
+
+      elConteudo.innerHTML = h;
+      restaurarFormularios();
+    }
+
+    function coluna(dest, r, al) {
+      var nome = NOMES[dest];
+      var lista = descontosDe(dest);
+      var pg = pagamentoDe(dest);
+      var pago = !!pg.pago;
+      var liquido = r.liquido[dest];
+
+      var h = '<section class="card ' + (pago ? 'card-accent-brand' : '') + '" data-col="' + dest + '">';
+
+      h += '<div class="card-head"><div>' +
+           '<div class="card-title">' + esc(nome) + '</div>' +
+           '<div class="card-sub">Metade do aluguel recebido, menos os descontos.</div>' +
+           '</div><div class="right">' +
+           (pago
+             ? '<span class="badge badge-ok">repassado' + (pg.data_pagamento ? ' ' + App.dataBR(pg.data_pagamento) : '') + '</span>'
+             : '<span class="badge badge-warn">a repassar</span>') +
+           '</div></div>';
+
+      h += '<div class="card-body">';
+
+      h += '<div class="linha-total" style="border-top:0"><span class="muted">Bruto (50% do recebido)</span>' +
+           '<span class="money">' + App.money(r.bruto[dest]) + '</span></div>';
+
+      h += '<div class="card-sub strong" style="margin-top:12px">Descontos</div>';
+
+      if (!lista.length) {
+        h += '<div class="empty"><div class="empty-icon">—</div>' +
+             '<p class="muted small">Nenhum desconto lançado para ' + esc(nome.toLowerCase()) + ' neste mês.</p></div>';
+      } else {
+        h += '<div class="stack">';
+        lista.forEach(function (dd) {
+          h += '<div class="desc-item">' +
+               '<div class="desc-txt"><div class="truncate">' + esc(dd.descricao) + '</div></div>' +
+               '<div class="money">' + App.money(Number(dd.valor) || 0) + '</div>' +
+               '<button class="btn btn-icon btn-sm btn-danger" type="button" data-acao="remover-desconto" ' +
+               'data-id="' + dd.id + '" aria-label="Remover desconto ' + esc(dd.descricao) + '" title="Remover">✕</button>' +
+               '</div>';
+        });
+        h += '</div>';
+        h += '<div class="linha-total"><span class="muted">Total de descontos</span>' +
+             '<span class="money money-open">− ' + App.money(r.desconto[dest]) + '</span></div>';
+      }
+
+      // formulário de novo desconto
+      h += '<form class="desc-form" data-form="' + dest + '">' +
+           '<div class="field"><label class="field-label" for="desc-' + dest + '">Descrição</label>' +
+           '<input class="input" id="desc-' + dest + '" type="text" autocomplete="off" ' +
+           'data-novo="' + dest + '" data-campo="descricao" placeholder="Ex.: seguro do carro"></div>' +
+           '<div class="field"><label class="field-label" for="val-' + dest + '">Valor</label>' +
+           '<div class="input-money"><input class="input" id="val-' + dest + '" type="text" inputmode="decimal" ' +
+           'data-novo="' + dest + '" data-campo="valor" placeholder="0,00"></div></div>' +
+           '<div class="field"><button class="btn btn-outline btn-block" type="submit">Adicionar</button></div>' +
+           '</form>';
+
+      // líquido
+      h += '<div class="liquido-box">' +
+           '<div class="stat-label">Líquido a repassar</div>' +
+           '<div class="money-lg ' + (pago ? 'money-paid' : (liquido > 0 ? 'money-open' : '')) + '">' + App.money(liquido) + '</div>' +
+           '<div class="stat-hint">' + App.money(r.bruto[dest]) + ' − ' + App.money(r.desconto[dest]) + ' de descontos' +
+           (liquido < 0 ? ' · os descontos passaram do bruto' : '') + '</div>' +
+           '</div>';
+
+      h += '</div>';
+
+      h += '<div class="card-foot">' +
+           '<label class="check"><input type="checkbox" data-acao="pago" data-dest="' + dest + '"' + (pago ? ' checked' : '') + '>' +
+           '<span>Repassado</span></label>' +
+           '<span class="spacer"></span>' +
+           '<span class="small muted">' +
+           (pago
+             ? (pg.data_pagamento ? 'em ' + App.dataBR(pg.data_pagamento) : 'sem data')
+             : 'ainda não repassado') +
+           '</span>' +
+           '</div>';
+
+      h += '</section>';
+      return h;
+    }
+
+    function restaurarFormularios() {
+      ['pai', 'mae'].forEach(function (dest) {
+        var d = document.querySelector('[data-novo="' + dest + '"][data-campo="descricao"]');
+        var v = document.querySelector('[data-novo="' + dest + '"][data-campo="valor"]');
+        if (d) d.value = state.novo[dest].descricao;
+        if (v) v.value = state.novo[dest].valor;
+      });
+    }
+
+    function textoResumo() {
+      var r = repasse(), al = aluguelDoMes();
+      var label = (state.dados.mes && state.dados.mes.label) || App.mesLabel(state.ano, state.mes);
+      var linhas = ['REPASSE ' + label, 'Aluguel recebido: ' + App.money(al.recebido), ''];
+      ['pai', 'mae'].forEach(function (dest) {
+        var pg = pagamentoDe(dest);
+        linhas.push(NOMES[dest].toUpperCase() + ': ' + App.money(r.liquido[dest]) +
+          (pg.pago ? ' (repassado' + (pg.data_pagamento ? ' em ' + App.dataBR(pg.data_pagamento) : '') + ')' : ''));
+        linhas.push('  bruto ' + App.money(r.bruto[dest]));
+        descontosDe(dest).forEach(function (d) {
+          linhas.push('  - ' + d.descricao + ': ' + App.money(Number(d.valor) || 0));
+        });
+        linhas.push('');
+      });
+      return linhas.join('\n').trim();
+    }
+
+    /* ---------- eventos ---------- */
+
+    document.addEventListener('input', function (e) {
+      var el = e.target.closest('[data-novo]');
+      if (!el) return;
+      var dest = el.getAttribute('data-novo');
+      var campo = el.getAttribute('data-campo');
+      if (state.novo[dest]) state.novo[dest][campo] = el.value;
+    });
+
+    document.addEventListener('submit', function (e) {
+      var form = e.target.closest('[data-form]');
+      if (!form) return;
+      e.preventDefault();
+      adicionarDesconto(form.getAttribute('data-form'), form);
+    });
+
+    document.addEventListener('change', function (e) {
+      var chk = e.target.closest('[data-acao="pago"]');
+      if (!chk) return;
+      marcarRepassado(chk.getAttribute('data-dest'), chk.checked, chk);
+    });
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-acao]');
+      if (!btn || btn.getAttribute('data-acao') === 'pago') return;
+      var acao = btn.getAttribute('data-acao');
+
+      if (acao === 'recarregar') return carregarMes();
+      if (acao === 'copiar') return App.copiar(textoResumo());
+      if (acao === 'mes') {
+        var ano = parseInt(btn.getAttribute('data-ano'), 10);
+        var mes = parseInt(btn.getAttribute('data-mes'), 10);
+        if (ano === state.ano && mes === state.mes) return;
+        state.ano = ano; state.mes = mes;
+        App.setMes(ano, mes);
+        renderTabs();
+        return carregarMes();
+      }
+      if (acao === 'remover-desconto') return removerDesconto(parseInt(btn.getAttribute('data-id'), 10), btn);
+    });
+
+    /* ---------- ações ---------- */
+
+    function adicionarDesconto(dest, form) {
+      var novo = state.novo[dest];
+      var descricao = (novo.descricao || '').trim();
+      var valor = moedaNum(novo.valor);
+      if (!descricao) { App.toast('Descreva o desconto (ex.: seguro do carro).', 'err'); return; }
+      if (!(valor > 0)) { App.toast('Informe um valor maior que zero.', 'err'); return; }
+
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+
+      App.api('/desconto', {
+        method: 'POST',
+        body: { mes_id: state.dados.mes.id, destinatario: dest, descricao: descricao, valor: valor }
+      }).then(function (r) {
+        state.novo[dest] = { descricao: '', valor: '' };
+        App.toast('Desconto lançado para ' + NOMES[dest].toLowerCase() + '.', 'ok');
+        aplicar(r);
+      }).catch(function () {
+        if (btn) { btn.disabled = false; btn.textContent = 'Adicionar'; }
+      });
+    }
+
+    function removerDesconto(id, btn) {
+      var alvo = ((state.dados && state.dados.descontos) || []).filter(function (d) { return d.id === id; })[0];
+      App.confirmar({
+        titulo: 'Remover desconto?',
+        texto: alvo ? ('"' + alvo.descricao + '" — ' + App.money(Number(alvo.valor) || 0) + ' de ' + NOMES[alvo.destinatario].toLowerCase() + '.') : '',
+        ok: 'Remover',
+        cancelar: 'Cancelar',
+        perigo: true
+      }).then(function (ok) {
+        if (!ok) return;
+        if (btn) btn.disabled = true;
+        return App.api('/desconto/' + id, { method: 'DELETE' }).then(function (r) {
+          App.toast('Desconto removido.', 'ok');
+          aplicar(r);
+        });
+      }).catch(function () { if (btn) btn.disabled = false; });
+    }
+
+    function marcarRepassado(dest, pago, chk) {
+      chk.disabled = true;
+      App.api('/pagamento-pai', {
+        method: 'PUT',
+        body: { mes_id: state.dados.mes.id, destinatario: dest, pago: pago }
+      }).then(function (r) {
+        App.toast(pago ? NOMES[dest] + ': repasse marcado como feito.' : NOMES[dest] + ': marcação desfeita.', 'ok');
+        aplicar(r);
+      }).catch(function () {
+        chk.disabled = false;
+        chk.checked = !pago;
+      });
+    }
+
+    /* ---------- início ---------- */
+
+    skeleton();
+    carregarMeses().then(carregarMes);
+  })();
+  </script>
+</body>
+</html>

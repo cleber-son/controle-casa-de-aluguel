@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — WhatsApp</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* --- regras específicas da tela de WhatsApp (usa só os tokens do app.css) --- */
+    .wa-steps{display:flex;gap:8px;margin:14px 0 18px}
+    .wa-step{flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);
+             background:var(--card);border-radius:var(--r);color:var(--txt-dim);font-size:.86rem;
+             min-height:46px;cursor:pointer;text-align:left}
+    .wa-step[disabled]{opacity:.5;cursor:not-allowed}
+    .wa-step-n{width:24px;height:24px;flex:0 0 24px;border-radius:50%;display:grid;place-items:center;
+               background:var(--card-2);color:var(--txt-dim);font-weight:700;font-size:.78rem}
+    .wa-step.is-active{border-color:var(--brand);background:var(--brand-soft);color:var(--txt)}
+    .wa-step.is-active .wa-step-n{background:var(--brand);color:#06231a}
+    .wa-step.is-done .wa-step-n{background:var(--ok);color:#06231a}
+    .wa-step-txt{line-height:1.15}
+    @media (max-width:560px){ .wa-step-txt{display:none} .wa-step{flex:0 0 auto;justify-content:center} }
+
+    .wa-card{margin-bottom:14px}
+    .wa-card.is-off{opacity:.55}
+    .wa-card-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .wa-card-head .wa-titulo{flex:1;min-width:0}
+    .wa-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .wa-actions .btn{flex:1 1 160px}
+
+    .wa-clamp{max-height:12.5em;overflow:hidden}
+    .wa-vertudo{margin-top:6px}
+    .wa-check{flex:0 0 auto;margin-top:2px}
+
+    .wa-editor{width:100%;min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92rem}
+
+    .wa-sticky{position:sticky;bottom:0;z-index:5;margin:16px -4px 0;padding:12px;
+               background:var(--card-2);border:1px solid var(--line);border-radius:var(--r);
+               box-shadow:var(--shadow);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .wa-sticky .wa-sticky-txt{flex:1;min-width:140px;line-height:1.2}
+
+    .wa-progress{height:10px;border-radius:999px;background:var(--card-2);overflow:hidden;border:1px solid var(--line)}
+    .wa-progress > i{display:block;height:100%;background:var(--brand);transition:width .25s ease}
+
+    .wa-item.is-enviado{border-color:var(--ok)}
+    .wa-item.is-enviado .wa-titulo .strong{text-decoration:line-through;color:var(--txt-dim)}
+
+    .wa-sep{border:0;border-top:1px solid var(--line);margin:22px 0 14px}
+    .wa-teste-box{border:1px dashed var(--line);border-radius:var(--r);padding:12px;margin-top:12px}
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div class="row" style="align-items:flex-start;justify-content:space-between;gap:12px">
+      <div>
+        <h1 style="margin:0">Mensagens de WhatsApp</h1>
+        <p class="muted small" style="margin:4px 0 0">
+          O envio é manual: o sistema monta o texto, você confere, confirma e abre o WhatsApp de cada um.
+        </p>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="ir-teste" type="button">Testar mensagem</button>
+    </div>
+
+    <div id="wa-topo"></div>
+    <div id="wa-steps"></div>
+    <div id="wa-conteudo"></div>
+
+    <hr class="wa-sep">
+    <div id="wa-teste"></div>
+  </main>
+
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    App.mount('whatsapp');
+
+    var MODELOS = [
+      { id: 'cobranca', nome: 'Cobrança', desc: 'Contas do mês e total em aberto' },
+      { id: 'lembrete', nome: 'Lembrete', desc: 'Aviso curto de vencimento' },
+      { id: 'recibo',   nome: 'Recibo',   desc: 'Confirmação do que já foi pago' }
+    ];
+
+    var state = {
+      bootstrap: null,
+      ano: null,
+      mes: null,
+      modelo: 'cobranca',
+      dados: null,
+      carregando: true,
+      erro: null,
+      passo: 1,
+      confirmado: false,
+      sel: new Set(),        // casa_id selecionados para envio
+      enviados: new Set(),   // casa_id já marcados como enviados (servidor + sessão)
+      pendentes: new Set(),  // marcações que falharam e serão reenviadas
+      edits: {},             // casa_id -> texto editado (só nesta tela)
+      editando: null,        // casa_id em edição
+      abertos: new Set(),    // balões expandidos na fila
+      teste: null,           // { texto, wa_url, telefone_normalizado }
+      testeCarregando: false
+    };
+
+    /* ---------------- persistência do progresso da tela ---------------- */
+
+    function chave() {
+      return 'quintal.wa.' + state.ano + '-' + String(state.mes).padStart(2, '0') + '.' + state.modelo;
+    }
+    function salvarProgresso() {
+      try {
+        localStorage.setItem(chave(), JSON.stringify({
+          passo: state.passo,
+          confirmado: state.confirmado,
+          sel: Array.from(state.sel),
+          enviados: Array.from(state.enviados),
+          pendentes: Array.from(state.pendentes),
+          edits: state.edits,
+          ts: Date.now()
+        }));
+      } catch (e) { /* localStorage cheio/bloqueado: segue sem persistir */ }
+    }
+    function lerProgresso() {
+      try {
+        var raw = localStorage.getItem(chave());
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) { return null; }
+    }
+
+    /* ---------------- helpers ---------------- */
+
+    function esc(s) { return App.escapeHtml(s == null ? '' : String(s)); }
+    function msgs() { return (state.dados && state.dados.mensagens) || []; }
+    function porId(id) {
+      var l = msgs();
+      for (var i = 0; i < l.length; i++) if (l[i].casa_id === id) return l[i];
+      return null;
+    }
+    function textoDe(m) {
+      return Object.prototype.hasOwnProperty.call(state.edits, m.casa_id) ? state.edits[m.casa_id] : m.texto;
+    }
+    function editado(m) { return Object.prototype.hasOwnProperty.call(state.edits, m.casa_id); }
+    function urlDe(m) {
+      return editado(m) ? App.waUrl(m.telefone || '', textoDe(m)) : m.wa_url;
+    }
+    function nomeCasa(m) { return 'Casa ' + (m.casa_str || m.numero) + ' — ' + (m.inquilino || 'sem inquilino'); }
+    function selecionadas() {
+      return msgs().filter(function (m) { return state.sel.has(m.casa_id); });
+    }
+    function totalSelecionado() {
+      return selecionadas().reduce(function (s, m) { return s + (m.total_aberto || 0); }, 0);
+    }
+    function modeloNome(id) {
+      for (var i = 0; i < MODELOS.length; i++) if (MODELOS[i].id === id) return MODELOS[i].nome;
+      return id;
+    }
+    function selecaoPadrao(m) {
+      // cobrança/lembrete: quem tem valor em aberto. recibo: quem já quitou o mês.
+      if (state.modelo === 'recibo') return !!m.tudo_pago;
+      return (m.total_aberto || 0) > 0;
+    }
+
+    /* ---------------- carregamento ---------------- */
+
+    async function boot() {
+      var m = App.mesAtual();
+      state.ano = m.ano; state.mes = m.mes;
+      render();
+      try {
+        state.bootstrap = await App.api('/bootstrap');
+      } catch (e) { /* o toast já apareceu; segue com a aba do mês escolhido */ }
+      await carregar();
+    }
+
+    async function carregar() {
+      state.carregando = true;
+      state.erro = null;
+      state.dados = null;
+      state.editando = null;
+      state.teste = null;
+      render();
+      try {
+        var r = await App.api('/mensagens/' + state.ano + '/' + state.mes + '?modelo=' + encodeURIComponent(state.modelo));
+        state.dados = r;
+        (r.mensagens || []).sort(function (a, b) { return (a.numero || 0) - (b.numero || 0); });
+        restaurarEstado();
+      } catch (e) {
+        state.erro = e && e.message ? e.message : 'Não foi possível carregar as mensagens.';
+      }
+      state.carregando = false;
+      render();
+      retomarPendentes();
+    }
+
+    function restaurarEstado() {
+      var salvo = lerProgresso();
+      var ids = msgs().map(function (m) { return m.casa_id; });
+      var validos = new Set(ids);
+
+      state.sel = new Set();
+      state.enviados = new Set();
+      state.pendentes = new Set();
+      state.edits = {};
+      state.abertos = new Set();
+      state.passo = 1;
+      state.confirmado = false;
+
+      // quem o servidor já registra como enviado neste mês/modelo
+      msgs().forEach(function (m) { if (m.enviado_em) state.enviados.add(m.casa_id); });
+
+      if (salvo) {
+        (salvo.sel || []).forEach(function (id) { if (validos.has(id)) state.sel.add(id); });
+        (salvo.enviados || []).forEach(function (id) { if (validos.has(id)) state.enviados.add(id); });
+        (salvo.pendentes || []).forEach(function (id) { if (validos.has(id)) state.pendentes.add(id); });
+        Object.keys(salvo.edits || {}).forEach(function (k) {
+          var id = Number(k);
+          if (validos.has(id)) state.edits[id] = salvo.edits[k];
+        });
+        state.confirmado = !!salvo.confirmado;
+        state.passo = state.confirmado ? (salvo.passo || 1) : Math.min(salvo.passo || 1, 2);
+        if (!state.sel.size) state.passo = 1;
+      } else {
+        msgs().forEach(function (m) { if (selecaoPadrao(m)) state.sel.add(m.casa_id); });
+      }
+    }
+
+    /* ---------------- marcação de envio ---------------- */
+
+    async function marcarEnviado(ids) {
+      ids = ids.filter(function (id) { return id != null; });
+      if (!ids.length) return;
+      ids.forEach(function (id) { state.enviados.add(id); state.pendentes.add(id); });
+      salvarProgresso();
+      atualizarFila(ids);
+      try {
+        await App.api('/mensagens/' + state.ano + '/' + state.mes + '/marcar-enviado', {
+          method: 'POST',
+          body: { casa_ids: ids, modelo: state.modelo }
+        });
+        ids.forEach(function (id) {
+          state.pendentes.delete(id);
+          var m = porId(id);
+          if (m && !m.enviado_em) m.enviado_em = new Date().toISOString();
+        });
+        salvarProgresso();
+        atualizarFila(ids);
+      } catch (e) {
+        // fica pendente: tentamos de novo quando a tela voltar ao foco
+        App.toast('Marquei aqui na tela, mas não consegui registrar no servidor. Tento de novo ao voltar.', 'err');
+      }
+    }
+
+    async function retomarPendentes() {
+      if (!state.pendentes.size || !state.dados) return;
+      var ids = Array.from(state.pendentes);
+      try {
+        await App.api('/mensagens/' + state.ano + '/' + state.mes + '/marcar-enviado', {
+          method: 'POST',
+          body: { casa_ids: ids, modelo: state.modelo }
+        });
+        ids.forEach(function (id) { state.pendentes.delete(id); });
+        salvarProgresso();
+        atualizarFila(ids);
+      } catch (e) { /* tenta na próxima */ }
+    }
+
+    // atualiza só os cards afetados + o progresso, para não perder a rolagem no celular
+    function atualizarFila(ids) {
+      if (state.passo !== 3 || !state.confirmado) { renderConteudo(); renderSteps(); return; }
+      ids.forEach(function (id) {
+        var m = porId(id);
+        var card = document.querySelector('[data-card="' + id + '"]');
+        if (m && card) card.outerHTML = htmlItemFila(m);
+      });
+      var lista = selecionadas(), feitos = contaEnviados();
+      var pct = lista.length ? Math.round((feitos / lista.length) * 100) : 0;
+      var cont = App.qs('#fila-contagem');
+      if (cont) cont.textContent = feitos + ' de ' + lista.length + ' enviadas';
+      var bar = App.qs('#fila-bar');
+      if (bar) {
+        bar.style.width = pct + '%';
+        var box = bar.parentNode;
+        if (box) box.setAttribute('aria-valuenow', String(feitos));
+      }
+      renderSteps();
+    }
+
+    /* ---------------- render: topo (mês + modelo) ---------------- */
+
+    function renderTopo() {
+      var meses = ((state.bootstrap && state.bootstrap.meses) || []).slice();
+      if (!meses.some(function (x) { return x.ano === state.ano && x.mes === state.mes; })) {
+        meses.push({ ano: state.ano, mes: state.mes, label: App.mesLabel(state.ano, state.mes), fechado: 0 });
+        meses.sort(function (a, b) { return (a.ano - b.ano) || (a.mes - b.mes); });
+      }
+
+      var abas = meses.map(function (x) {
+        var ativo = (x.ano === state.ano && x.mes === state.mes);
+        return '<button type="button" class="tab' + (ativo ? ' is-active' : '') + '" data-act="mes"' +
+               ' data-ano="' + x.ano + '" data-mes="' + x.mes + '"' +
+               (ativo ? ' aria-current="true"' : '') + '>' + esc(x.label || App.mesLabel(x.ano, x.mes)) + '</button>';
+      }).join('');
+
+      var opts = MODELOS.map(function (mo) {
+        return '<option value="' + mo.id + '"' + (mo.id === state.modelo ? ' selected' : '') + '>' +
+               esc(mo.nome) + ' — ' + esc(mo.desc) + '</option>';
+      }).join('');
+
+      App.qs('#wa-topo').innerHTML =
+        '<div class="card">' +
+          '<div class="card-body stack">' +
+            '<div class="field">' +
+              '<span class="field-label">Mês</span>' +
+              '<div class="tabs tabs-scroll">' + abas + '</div>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label class="field-label" for="sel-modelo">Modelo da mensagem</label>' +
+              '<select class="select" id="sel-modelo">' + opts + '</select>' +
+              '<span class="field-hint">Trocar o mês ou o modelo recarrega o preview e o progresso da fila daquela combinação.</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      var ativa = App.qs('#wa-topo .tab.is-active');
+      if (ativa && ativa.scrollIntoView) ativa.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
+
+    /* ---------------- render: indicador de passos ---------------- */
+
+    function renderSteps() {
+      var qtd = state.sel.size;
+      var passos = [
+        { n: 1, t: 'Preview', sub: msgs().length ? msgs().length + ' mensagens' : '' },
+        { n: 2, t: 'Confirmar', sub: qtd ? qtd + ' selecionadas' : 'nada selecionado' },
+        { n: 3, t: 'Enviar', sub: state.confirmado ? contaEnviados() + '/' + qtd + ' enviadas' : 'bloqueado' }
+      ];
+      App.qs('#wa-steps').innerHTML = '<div class="wa-steps" role="tablist" aria-label="Etapas do envio">' +
+        passos.map(function (p) {
+          var bloqueado = (p.n === 3 && !state.confirmado) || (p.n === 2 && !qtd);
+          var cls = 'wa-step' + (state.passo === p.n ? ' is-active' : '') + (state.passo > p.n ? ' is-done' : '');
+          return '<button type="button" class="' + cls + '" data-act="passo" data-passo="' + p.n + '"' +
+                 (bloqueado ? ' disabled' : '') + ' aria-label="Passo ' + p.n + ': ' + esc(p.t) + '">' +
+                 '<span class="wa-step-n">' + p.n + '</span>' +
+                 '<span class="wa-step-txt"><span class="strong">' + esc(p.t) + '</span>' +
+                 (p.sub ? '<br><span class="small muted">' + esc(p.sub) + '</span>' : '') + '</span>' +
+                 '</button>';
+        }).join('') + '</div>';
+    }
+
+    function contaEnviados() {
+      return selecionadas().filter(function (m) { return state.enviados.has(m.casa_id); }).length;
+    }
+
+    /* ---------------- render: conteúdo por passo ---------------- */
+
+    function renderConteudo() {
+      var alvo = App.qs('#wa-conteudo');
+      if (state.carregando) { alvo.innerHTML = skeleton(); renderSteps(); return; }
+      if (state.erro) {
+        alvo.innerHTML =
+          '<div class="empty">' +
+            '<div class="empty-icon">⚠️</div>' +
+            '<p class="strong">Não deu para carregar as mensagens</p>' +
+            '<p class="muted small">' + esc(state.erro) + '</p>' +
+            '<button class="btn btn-outline" data-act="recarregar" type="button">Tentar de novo</button>' +
+          '</div>';
+        renderSteps();
+        return;
+      }
+      if (!msgs().length) {
+        alvo.innerHTML =
+          '<div class="empty">' +
+            '<div class="empty-icon">🏚️</div>' +
+            '<p class="strong">Nenhuma mensagem para ' + esc(labelMes()) + '</p>' +
+            '<p class="muted small">Não há casa ocupada com dados neste mês. Cadastre os inquilinos em Casas ou lance as contas do mês.</p>' +
+            '<div class="row center wrap" style="gap:8px">' +
+              '<a class="btn btn-primary" href="/">Lançar contas do mês</a>' +
+              '<a class="btn btn-outline" href="/casas">Cadastro de casas</a>' +
+            '</div>' +
+          '</div>';
+        renderSteps();
+        return;
+      }
+      if (state.passo === 3 && state.confirmado) alvo.innerHTML = htmlFila();
+      else if (state.passo === 2) alvo.innerHTML = htmlConfirmacao();
+      else alvo.innerHTML = htmlPreview();
+      renderSteps();
+    }
+
+    function labelMes() {
+      return (state.dados && state.dados.mes && state.dados.mes.label) || App.mesLabel(state.ano, state.mes);
+    }
+
+    function skeleton() {
+      var um = '<div class="card wa-card"><div class="card-body stack">' +
+               '<div class="skeleton" style="height:18px;width:55%"></div>' +
+               '<div class="skeleton" style="height:14px;width:35%"></div>' +
+               '<div class="skeleton" style="height:120px"></div>' +
+               '</div></div>';
+      return um + um + um;
+    }
+
+    /* ------- passo 1: preview ------- */
+
+    function htmlPreview() {
+      var resumo = (state.dados && state.dados.resumo) || {};
+      var lista = msgs();
+      var aviso = '';
+
+      if (state.modelo !== 'recibo' && !(resumo.total_aberto > 0)) {
+        aviso =
+          '<div class="card card-accent-luz" style="margin-bottom:14px"><div class="card-body">' +
+            '<p class="strong" style="margin:0 0 4px">Nenhum valor em aberto neste mês</p>' +
+            '<p class="muted small" style="margin:0 0 10px">As mensagens vão sair sem cobrança. Se as contas de ' +
+              esc(labelMes()) + ' ainda não foram lançadas, lance primeiro na tela do mês.</p>' +
+            '<a class="btn btn-outline btn-sm" href="/">Lançar as contas do mês</a>' +
+          '</div></div>';
+      }
+
+      var cards = lista.map(htmlCardPreview).join('');
+
+      var qtd = state.sel.size;
+      var barra =
+        '<div class="wa-sticky">' +
+          '<div class="wa-sticky-txt">' +
+            '<span class="strong">' + qtd + (qtd === 1 ? ' mensagem' : ' mensagens') + '</span>' +
+            '<br><span class="small muted">' + App.money(totalSelecionado()) + ' em aberto</span>' +
+          '</div>' +
+          '<button class="btn btn-primary btn-lg" data-act="ir-confirmar" type="button"' + (qtd ? '' : ' disabled') + '>' +
+            'Continuar' +
+          '</button>' +
+        '</div>';
+
+      return '' +
+        '<div class="row wrap" style="justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">' +
+          '<div>' +
+            '<span class="strong">Preview de ' + esc(labelMes()) + '</span> ' +
+            '<span class="badge badge-info">' + esc(modeloNome(state.modelo)) + '</span>' +
+            '<br><span class="small muted">' +
+              (resumo.qtd || lista.length) + ' casas • ' + App.money(resumo.total_aberto || 0) + ' em aberto' +
+              (resumo.sem_telefone ? ' • ' + resumo.sem_telefone + ' sem telefone' : '') +
+              (resumo.ja_enviados ? ' • ' + resumo.ja_enviados + ' já enviadas' : '') +
+            '</span>' +
+          '</div>' +
+          '<div class="row wrap" style="gap:8px">' +
+            '<button class="btn btn-ghost btn-sm" data-act="sel-todos" type="button">Selecionar todos</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="sel-nenhum" type="button">Nenhum</button>' +
+          '</div>' +
+        '</div>' +
+        aviso + cards + barra;
+    }
+
+    function htmlCardPreview(m) {
+      var marcado = state.sel.has(m.casa_id);
+      var txt = textoDe(m);
+      var emEdicao = state.editando === m.casa_id;
+
+      var selos = '';
+      if (m.enviado_em) selos += '<span class="badge badge-ok" title="' + esc(m.enviado_em) + '">já enviada</span> ';
+      else if (state.enviados.has(m.casa_id)) selos += '<span class="badge badge-ok">enviada</span> ';
+      if (editado(m)) selos += '<span class="badge badge-warn">texto editado</span> ';
+      if (m.tudo_pago) selos += '<span class="badge badge-info">tudo pago</span> ';
+
+      var tel = m.tem_telefone
+        ? '<span class="mono small">' + esc(m.telefone) + '</span>'
+        : '<span class="badge badge-err">sem telefone cadastrado</span> <a class="small" href="/casas">cadastrar em Casas</a>';
+
+      var corpo = emEdicao
+        ? '<div class="field">' +
+            '<label class="field-label" for="ed-' + m.casa_id + '">Texto da mensagem (vale só nesta tela)</label>' +
+            '<textarea class="textarea wa-editor" id="ed-' + m.casa_id + '">' + esc(txt) + '</textarea>' +
+          '</div>' +
+          '<div class="wa-actions">' +
+            '<button class="btn btn-primary" data-act="salvar-edicao" data-casa="' + m.casa_id + '" type="button">Salvar texto</button>' +
+            '<button class="btn btn-ghost" data-act="cancelar-edicao" type="button">Cancelar</button>' +
+            (editado(m) ? '<button class="btn btn-outline" data-act="reverter" data-casa="' + m.casa_id + '" type="button">Reverter ao original</button>' : '') +
+          '</div>'
+        : '<div class="wa-bubble">' + esc(txt) + '</div>' +
+          '<div class="wa-actions">' +
+            '<button class="btn btn-outline btn-sm" data-act="editar" data-casa="' + m.casa_id + '" type="button">Editar texto</button>' +
+            (editado(m) ? '<button class="btn btn-ghost btn-sm" data-act="reverter" data-casa="' + m.casa_id + '" type="button">Reverter ao original</button>' : '') +
+          '</div>';
+
+      return '' +
+      '<div class="card wa-card' + (marcado ? '' : ' is-off') + '" data-card="' + m.casa_id + '">' +
+        '<div class="card-body">' +
+          '<div class="wa-card-head">' +
+            '<input type="checkbox" class="check wa-check" data-act="toggle" data-casa="' + m.casa_id + '"' +
+              (marcado ? ' checked' : '') +
+              ' aria-label="Incluir ' + esc(nomeCasa(m)) + ' no envio">' +
+            '<div class="wa-titulo">' +
+              '<div class="strong">' + esc(nomeCasa(m)) + '</div>' +
+              '<div class="wa-meta small">' + tel + '</div>' +
+              '<div style="margin-top:6px">' + selos +
+                '<span class="money ' + ((m.total_aberto || 0) > 0 ? 'money-open' : 'money-paid') + '">' +
+                  App.money(m.total_aberto || 0) + ((m.total_aberto || 0) > 0 ? ' em aberto' : ' — nada em aberto') +
+                '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="margin-top:12px">' + corpo + '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    /* ------- passo 2: confirmação ------- */
+
+    function htmlConfirmacao() {
+      var lista = selecionadas();
+      var semTel = lista.filter(function (m) { return !m.tem_telefone; }).length;
+      var jaEnv = lista.filter(function (m) { return state.enviados.has(m.casa_id); }).length;
+
+      var itens = lista.map(function (m) {
+        return '<li>' + esc(nomeCasa(m)) + ' — <span class="money">' + App.money(m.total_aberto || 0) + '</span>' +
+               (m.tem_telefone ? '' : ' <span class="badge badge-err">sem telefone</span>') +
+               (editado(m) ? ' <span class="badge badge-warn">editada</span>' : '') + '</li>';
+      }).join('');
+
+      return '' +
+      '<div class="card card-accent-brand">' +
+        '<div class="card-head">' +
+          '<div>' +
+            '<div class="card-title">Confirmar envio</div>' +
+            '<div class="card-sub">' + esc(modeloNome(state.modelo)) + ' • ' + esc(labelMes()) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card-body stack">' +
+          '<div class="stat">' +
+            '<div class="stat-label">Resumo</div>' +
+            '<div class="stat-value">' + lista.length + (lista.length === 1 ? ' mensagem' : ' mensagens') +
+              ' • ' + App.money(totalSelecionado()) + ' em aberto</div>' +
+            '<div class="stat-hint">' +
+              (semTel ? semTel + ' sem telefone (dá para copiar o texto) • ' : '') +
+              (jaEnv ? jaEnv + ' já marcadas como enviadas • ' : '') +
+              'nada é enviado sozinho: você abre o WhatsApp de cada um' +
+            '</div>' +
+          '</div>' +
+          (lista.length ? '<ul class="small muted" style="margin:0;padding-left:18px;line-height:1.9">' + itens + '</ul>'
+                        : '<div class="empty"><p class="muted">Nenhuma casa selecionada.</p></div>') +
+        '</div>' +
+        '<div class="card-foot">' +
+          '<div class="wa-actions" style="width:100%">' +
+            '<button class="btn btn-ghost btn-lg" data-act="voltar-preview" type="button">Voltar ao preview</button>' +
+            '<button class="btn btn-primary btn-lg" data-act="confirmar" type="button"' + (lista.length ? '' : ' disabled') + '>' +
+              'Confirmar envio' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    /* ------- passo 3: fila ------- */
+
+    function htmlFila() {
+      var lista = selecionadas();
+      var comTel = lista.filter(function (m) { return m.tem_telefone; });
+      var semTel = lista.filter(function (m) { return !m.tem_telefone; });
+      var feitos = contaEnviados();
+      var pct = lista.length ? Math.round((feitos / lista.length) * 100) : 0;
+
+      var topo =
+        '<div class="card" style="margin-bottom:14px">' +
+          '<div class="card-body stack">' +
+            '<div class="row" style="justify-content:space-between;align-items:baseline;gap:8px">' +
+              '<span class="strong" id="fila-contagem">' + feitos + ' de ' + lista.length + ' enviadas</span>' +
+              '<span class="small muted">' + esc(modeloNome(state.modelo)) + ' • ' + esc(labelMes()) + '</span>' +
+            '</div>' +
+            '<div class="wa-progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + lista.length +
+              '" aria-valuenow="' + feitos + '" aria-label="Progresso do envio">' +
+              '<i id="fila-bar" style="width:' + pct + '%"></i></div>' +
+            '<p class="small muted" style="margin:0">Ao abrir o WhatsApp ou copiar o texto, a casa é marcada como enviada. ' +
+              'Volte para esta tela que o progresso continua de onde parou.</p>' +
+            '<div class="wa-actions">' +
+              '<button class="btn btn-outline" data-act="copiar-todas" type="button">Copiar todas</button>' +
+              '<button class="btn btn-ghost" data-act="voltar-preview" type="button">Voltar ao preview</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      var corpo = comTel.map(htmlItemFila).join('');
+
+      var bloco2 = '';
+      if (semTel.length) {
+        bloco2 =
+          '<div class="card card-accent-luz" style="margin:18px 0 12px"><div class="card-body">' +
+            '<p class="strong" style="margin:0 0 4px">' + semTel.length + ' sem telefone cadastrado</p>' +
+            '<p class="muted small" style="margin:0 0 10px">Não dá para abrir a conversa direto. Copie o texto e mande pelo contato que você já tem, ' +
+              'ou cadastre o número.</p>' +
+            '<a class="btn btn-outline btn-sm" href="/casas">Cadastrar telefones</a>' +
+          '</div></div>' + semTel.map(htmlItemFila).join('');
+      }
+
+      if (!lista.length) {
+        return '<div class="empty"><div class="empty-icon">✅</div><p class="strong">A fila está vazia</p>' +
+               '<button class="btn btn-outline" data-act="voltar-preview" type="button">Voltar ao preview</button></div>';
+      }
+
+      return topo + corpo + bloco2;
+    }
+
+    function htmlItemFila(m) {
+      var feito = state.enviados.has(m.casa_id);
+      var aberto = state.abertos.has(m.casa_id);
+      var txt = textoDe(m);
+      var url = urlDe(m);
+      var pend = state.pendentes.has(m.casa_id);
+
+      var selos = '';
+      if (feito) selos += '<span class="badge badge-ok">enviada</span> ';
+      if (pend) selos += '<span class="badge badge-warn">registro pendente</span> ';
+      if (editado(m)) selos += '<span class="badge badge-warn">editada</span> ';
+
+      return '' +
+      '<div class="card wa-card wa-item' + (feito ? ' is-enviado' : '') + '" data-card="' + m.casa_id + '">' +
+        '<div class="card-body">' +
+          '<div class="wa-card-head">' +
+            '<div class="wa-titulo">' +
+              '<div class="strong">' + esc(nomeCasa(m)) + '</div>' +
+              '<div class="wa-meta small">' +
+                (m.tem_telefone ? '<span class="mono">' + esc(m.telefone) + '</span>' : '<span class="badge badge-err">sem telefone</span>') +
+                ' • <span class="money ' + ((m.total_aberto || 0) > 0 ? 'money-open' : 'money-paid') + '">' +
+                App.money(m.total_aberto || 0) + '</span>' +
+              '</div>' +
+              '<div style="margin-top:6px">' + selos + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="wa-bubble' + (aberto ? '' : ' wa-clamp') + '" style="margin-top:10px">' + esc(txt) + '</div>' +
+          '<button class="btn btn-ghost btn-sm wa-vertudo" data-act="ver-tudo" data-casa="' + m.casa_id + '" type="button">' +
+            (aberto ? 'Recolher texto' : 'Ver texto inteiro') + '</button>' +
+          '<div class="wa-actions">' +
+            '<button class="btn btn-outline btn-lg" data-act="copiar-item" data-casa="' + m.casa_id + '" type="button">Copiar texto</button>' +
+            '<a class="btn btn-wa btn-lg" href="' + esc(url) + '" target="_blank" rel="noopener"' +
+              ' data-act="abrir" data-casa="' + m.casa_id + '">' +
+              (m.tem_telefone ? 'Abrir WhatsApp' : 'Abrir e escolher contato') + '</a>' +
+            (feito ? '<button class="btn btn-ghost btn-sm" data-act="desmarcar" data-casa="' + m.casa_id + '" type="button">Desmarcar aqui</button>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    /* ---------------- render: campo de teste ---------------- */
+
+    function renderTeste() {
+      var casas = msgs();
+      var opts = '<option value="">Casa fictícia de exemplo (Casa 00 — Teste)</option>' +
+        casas.map(function (m) {
+          return '<option value="' + m.casa_id + '">Dados reais — ' + esc(nomeCasa(m)) + '</option>';
+        }).join('');
+
+      var resultado = '';
+      if (state.testeCarregando) {
+        resultado = '<div class="wa-teste-box"><div class="skeleton" style="height:110px"></div></div>';
+      } else if (state.teste) {
+        resultado =
+          '<div class="wa-teste-box">' +
+            '<div class="wa-meta small" style="margin-bottom:8px">Mensagem de teste' +
+              (state.teste.telefone_normalizado ? ' para <span class="mono">' + esc(state.teste.telefone_normalizado) + '</span>' : ' (sem número: escolha o contato no WhatsApp)') +
+            '</div>' +
+            '<div class="wa-bubble">' + esc(state.teste.texto || '') + '</div>' +
+            '<div class="wa-actions">' +
+              '<button class="btn btn-outline" data-act="copiar-teste" type="button">Copiar</button>' +
+              '<a class="btn btn-wa" href="' + esc(state.teste.wa_url || '#') + '" target="_blank" rel="noopener">Abrir WhatsApp</a>' +
+              '<button class="btn btn-ghost" data-act="limpar-teste" type="button">Limpar</button>' +
+            '</div>' +
+          '</div>';
+      }
+
+      App.qs('#wa-teste').innerHTML =
+        '<div class="card card-accent-brand" id="card-teste">' +
+          '<div class="card-head">' +
+            '<div>' +
+              '<div class="card-title">Testar antes de mandar pra todo mundo</div>' +
+              '<div class="card-sub">Gera a mensagem para um número só. <span class="strong">Não marca ninguém como enviado.</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card-body stack">' +
+            '<div class="form-grid">' +
+              '<div class="field">' +
+                '<label class="field-label" for="teste-tel">Telefone do teste</label>' +
+                '<input class="input" id="teste-tel" type="tel" inputmode="numeric" autocomplete="tel"' +
+                  ' placeholder="(11) 98765-4321">' +
+                '<span class="field-hint">Pode ser o seu próprio número. Sem número, a mensagem abre para você escolher o contato.</span>' +
+              '</div>' +
+              '<div class="field">' +
+                '<label class="field-label" for="teste-casa">Dados usados no teste</label>' +
+                '<select class="select" id="teste-casa">' + opts + '</select>' +
+                '<span class="field-hint">Modelo: ' + esc(modeloNome(state.modelo)) + ' • mês: ' + esc(labelMes()) + '</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="wa-actions">' +
+              '<button class="btn btn-primary btn-lg" data-act="gerar-teste" type="button">Gerar teste</button>' +
+            '</div>' +
+            resultado +
+          '</div>' +
+        '</div>';
+    }
+
+    function render() {
+      var telAntes = (App.qs('#teste-tel') || {}).value || '';
+      renderTopo();
+      renderConteudo();
+      renderTeste();
+      var tel = App.qs('#teste-tel');
+      if (tel && telAntes) tel.value = telAntes; // não perde o número digitado ao trocar mês/modelo
+    }
+
+    /* ---------------- ações ---------------- */
+
+    async function gerarTeste() {
+      var tel = (App.qs('#teste-tel') || {}).value || '';
+      var casa = (App.qs('#teste-casa') || {}).value || '';
+      state.testeCarregando = true; renderTeste();
+      // o input é recriado no render: devolve o que o usuário digitou
+      var i = App.qs('#teste-tel'); if (i) i.value = tel;
+      var s = App.qs('#teste-casa'); if (s) s.value = casa;
+      try {
+        var body = { ano: state.ano, mes: state.mes, modelo: state.modelo };
+        if (tel.trim()) body.telefone = tel.trim();
+        if (casa) body.casa_id = Number(casa);
+        var r = await App.api('/mensagens/teste', { method: 'POST', body: body });
+        state.teste = { texto: r.texto, wa_url: r.wa_url, telefone_normalizado: r.telefone_normalizado };
+        App.toast('Mensagem de teste gerada. Nada foi marcado como enviado.', 'ok');
+      } catch (e) {
+        state.teste = null;
+      }
+      state.testeCarregando = false;
+      renderTeste();
+      var i2 = App.qs('#teste-tel'); if (i2) i2.value = tel;
+      var s2 = App.qs('#teste-casa'); if (s2) s2.value = casa;
+    }
+
+    async function confirmar() {
+      var lista = selecionadas();
+      if (!lista.length) return;
+      var ok = await App.confirmar({
+        titulo: 'Confirmar envio',
+        html: '<p class="strong" style="margin:0 0 6px">' + lista.length +
+                (lista.length === 1 ? ' mensagem' : ' mensagens') + ' • ' + App.money(totalSelecionado()) +
+                ' em aberto</p>' +
+              '<p class="muted small" style="margin:0">' + esc(modeloNome(state.modelo)) + ' de ' + esc(labelMes()) +
+                '. Depois de confirmar, a fila libera os botões de copiar e abrir o WhatsApp de cada casa. ' +
+                'Nada sai daqui sozinho.</p>',
+        ok: 'Confirmar e liberar a fila',
+        cancelar: 'Revisar de novo'
+      });
+      if (!ok) return;
+      state.confirmado = true;
+      state.passo = 3;
+      salvarProgresso();
+      renderConteudo();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function copiarTodas() {
+      var lista = selecionadas();
+      if (!lista.length) return;
+      var txt = lista.map(function (m) {
+        return '### ' + nomeCasa(m) + (m.tem_telefone ? ' (' + m.telefone + ')' : ' (sem telefone)') + '\n\n' + textoDe(m);
+      }).join('\n\n————————————————\n\n');
+      App.copiar(txt);
+      App.toast(lista.length + ' mensagens copiadas. Ninguém foi marcado como enviado.', 'info');
+    }
+
+    document.addEventListener('click', function (ev) {
+      if (!ev.target || typeof ev.target.closest !== 'function') return;
+      var alvo = ev.target.closest('[data-act]');
+
+      if (ev.target.closest('#ir-teste')) {
+        var c = App.qs('#card-teste');
+        if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        var t = App.qs('#teste-tel'); if (t) setTimeout(function () { t.focus(); }, 350);
+        return;
+      }
+      if (!alvo) return;
+
+      var act = alvo.getAttribute('data-act');
+      var casaId = alvo.getAttribute('data-casa') ? Number(alvo.getAttribute('data-casa')) : null;
+
+      if (act === 'mes') {
+        var a = Number(alvo.getAttribute('data-ano')), m = Number(alvo.getAttribute('data-mes'));
+        if (a === state.ano && m === state.mes) return;
+        state.ano = a; state.mes = m;
+        App.setMes(a, m);
+        carregar();
+        return;
+      }
+
+      if (act === 'passo') {
+        var p = Number(alvo.getAttribute('data-passo'));
+        if (p === 3 && !state.confirmado) return;
+        if (p === 2 && !state.sel.size) return;
+        state.passo = p;
+        salvarProgresso();
+        renderConteudo();
+        return;
+      }
+
+      if (act === 'recarregar') { carregar(); return; }
+
+      if (act === 'sel-todos' || act === 'sel-nenhum') {
+        state.sel = new Set();
+        if (act === 'sel-todos') msgs().forEach(function (x) { state.sel.add(x.casa_id); });
+        state.confirmado = false;
+        salvarProgresso();
+        renderConteudo();
+        return;
+      }
+
+      if (act === 'editar') { state.editando = casaId; renderConteudo(); return; }
+      if (act === 'cancelar-edicao') { state.editando = null; renderConteudo(); return; }
+
+      if (act === 'salvar-edicao') {
+        var ta = App.qs('#ed-' + casaId);
+        var original = porId(casaId);
+        if (ta && original) {
+          if (ta.value === original.texto) delete state.edits[casaId];
+          else state.edits[casaId] = ta.value;
+        }
+        state.editando = null;
+        salvarProgresso();
+        renderConteudo();
+        App.toast('Texto guardado só nesta tela.', 'ok');
+        return;
+      }
+
+      if (act === 'reverter') {
+        delete state.edits[casaId];
+        state.editando = null;
+        salvarProgresso();
+        renderConteudo();
+        App.toast('Texto original restaurado.', 'info');
+        return;
+      }
+
+      if (act === 'ir-confirmar') {
+        if (!state.sel.size) return;
+        state.passo = 2;
+        salvarProgresso();
+        renderConteudo();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      if (act === 'voltar-preview') {
+        state.passo = 1;
+        salvarProgresso();
+        renderConteudo();
+        return;
+      }
+
+      if (act === 'confirmar') { confirmar(); return; }
+
+      if (act === 'copiar-todas') { copiarTodas(); return; }
+
+      if (act === 'ver-tudo') {
+        if (state.abertos.has(casaId)) state.abertos.delete(casaId); else state.abertos.add(casaId);
+        atualizarFila([casaId]);
+        return;
+      }
+
+      if (act === 'copiar-item') {
+        var mm = porId(casaId);
+        if (!mm) return;
+        App.copiar(textoDe(mm));
+        marcarEnviado([casaId]);
+        return;
+      }
+
+      if (act === 'abrir') {
+        // o link abre o WhatsApp normalmente; só registramos a marcação
+        marcarEnviado([casaId]);
+        return;
+      }
+
+      if (act === 'desmarcar') {
+        state.enviados.delete(casaId);
+        state.pendentes.delete(casaId);
+        salvarProgresso();
+        atualizarFila([casaId]);
+        App.toast('Marquei como não enviada aqui na tela (o registro do servidor continua).', 'info');
+        return;
+      }
+
+      if (act === 'gerar-teste') { gerarTeste(); return; }
+      if (act === 'copiar-teste') { if (state.teste) App.copiar(state.teste.texto); return; }
+      if (act === 'limpar-teste') { state.teste = null; renderTeste(); return; }
+    });
+
+    document.addEventListener('change', function (ev) {
+      var el = ev.target;
+      if (el.id === 'sel-modelo') {
+        state.modelo = el.value;
+        carregar();
+        return;
+      }
+      if (el.matches('input[type="checkbox"][data-act="toggle"]')) {
+        var id = Number(el.getAttribute('data-casa'));
+        if (el.checked) state.sel.add(id); else state.sel.delete(id);
+        state.confirmado = false;
+        salvarProgresso();
+        // atualiza sem perder a posição de rolagem
+        var card = document.querySelector('[data-card="' + id + '"]');
+        if (card) card.classList.toggle('is-off', !el.checked);
+        atualizarBarra();
+        renderSteps();
+      }
+    });
+
+    // máscara leve do telefone de teste
+    document.addEventListener('input', function (ev) {
+      if (ev.target.id !== 'teste-tel') return;
+      var d = ev.target.value.replace(/\D/g, '').slice(0, 13);
+      var out = d;
+      if (d.length <= 11) {
+        if (d.length > 2) out = '(' + d.slice(0, 2) + ') ' + d.slice(2);
+        if (d.length > 7) out = '(' + d.slice(0, 2) + ') ' + d.slice(2, d.length - 4) + '-' + d.slice(d.length - 4);
+      }
+      ev.target.value = out;
+    });
+
+    function atualizarBarra() {
+      var barra = document.querySelector('.wa-sticky');
+      if (!barra) return;
+      var qtd = state.sel.size;
+      barra.querySelector('.wa-sticky-txt').innerHTML =
+        '<span class="strong">' + qtd + (qtd === 1 ? ' mensagem' : ' mensagens') + '</span>' +
+        '<br><span class="small muted">' + App.money(totalSelecionado()) + ' em aberto</span>';
+      var btn = barra.querySelector('[data-act="ir-confirmar"]');
+      if (btn) btn.disabled = !qtd;
+    }
+
+    // ao voltar do app do WhatsApp: reenvia marcações pendentes
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') retomarPendentes();
+    });
+    window.addEventListener('focus', retomarPendentes);
+
+    boot();
+  })();
+  </script>
+</body>
+</html>

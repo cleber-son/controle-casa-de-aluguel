@@ -28,8 +28,11 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.autenticado) return next();
 
   // Para chamadas API → 401 JSON. Para navegação → redirect ao login.
-  if (req.path.startsWith('/api/')) {
-    return res.status(401).json({ ok: false, error: 'Não autenticado' });
+  // originalUrl (e não path): dentro do router montado em /api, req.path já vem
+  // sem o prefixo, e a API responderia com redirect em vez de 401.
+  const url = req.originalUrl || req.url || '';
+  if (url.startsWith('/api/') || url === '/api') {
+    return res.status(401).json({ ok: false, erro: 'Não autenticado' });
   }
   return res.redirect('/login');
 }

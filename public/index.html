@@ -1,498 +1,648 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<title>Controle de Aluguel</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/css/style.css">
-<script src="/js/mes-ref.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — Mês</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* Regras específicas da tela de Mês (usam os tokens do app.css) */
+    .m-tit{font-size:1.35rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.4px}
+    .m-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+    /* linha de rateio calculado pelo backend */
+    .m-rateio{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+      background:var(--card-2);border:1px solid var(--line);border-radius:var(--r-sm);
+      padding:10px 12px}
+    .m-rateio b{font-size:1.05rem}
+
+    /* bloco de um relógio de luz dentro do card de contas */
+    .m-relogio{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;background:var(--bg-2)}
+
+    /* item cobrável dentro do card da casa */
+    .m-item{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;
+      padding:10px 4px;border-top:1px solid var(--line);min-height:48px;cursor:pointer}
+    .m-item:first-child{border-top:0}
+    .m-item-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+    .m-item-val{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .m-item.is-zero{opacity:.5;cursor:default}
+    .m-item.is-bloq{cursor:default}
+
+    /* casa vaga: presente, porém discreta */
+    .m-vaga{opacity:.62}
+    .m-vaga .card-title{font-weight:600}
+
+    .m-casa-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between}
+    .m-casa-tot{display:flex;gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+
+    .m-edit{border-top:1px dashed var(--line);padding-top:12px;margin-top:4px}
+
+    .m-tab-novo{font-weight:800;font-size:1.15rem;min-width:44px}
+
+    .m-sk{height:96px;border-radius:var(--r)}
+    .m-sk-alto{height:220px;border-radius:var(--r)}
+    .m-acoes{display:flex;gap:10px;flex-wrap:wrap}
+    .m-acoes .btn{flex:1 1 190px}
+
+    @media (max-width:520px){
+      .m-item{grid-template-columns:auto 1fr;row-gap:2px}
+      .m-item-val{grid-column:2;text-align:left}
+    }
+  </style>
 </head>
 <body>
+  <div id="app-header"></div>
 
-<header>
-  <h1>🏠 Controle de Aluguel</h1>
-  <nav>
-    <a href="/" class="active">📅 Mês atual</a>
-    <a href="/recibos">📄 Recibos</a>
-    <a href="/devedores">⚠️ Devedores</a>
-    <a href="/historico">📊 Histórico</a>
-    <a href="/casas">🏘️ Casas</a>
-  </nav>
-  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
-  <form method="POST" action="/logout" style="margin:0">
-    <button type="submit" class="logout-btn">Sair</button>
-  </form>
-</header>
+  <main class="container" id="app">
+    <section id="tabs" class="stack" aria-label="Meses"></section>
+    <section id="conteudo" class="stack">
+      <div class="skeleton m-sk"></div>
+      <div class="skeleton m-sk-alto"></div>
+      <div class="skeleton m-sk"></div>
+    </section>
+  </main>
 
-<main>
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    'use strict';
 
-  <!-- ─────────── SELETOR DE MÊS + AÇÕES DO MÊS ─────────── -->
-  <div class="card">
-    <h2>Mês de referência</h2>
-    <div class="field-inline">
-      <div class="field" style="flex:0 0 110px">
-        <label>Ano</label>
-        <input id="sel-ano" type="number" min="2026" max="2099" step="1">
-      </div>
-      <div class="field" style="flex:0 0 150px">
-        <label>Mês</label>
-        <select id="sel-mes"></select>
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button class="primary" onclick="carregarMes()">📂 Carregar</button>
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button class="primary" onclick="salvarHeader()">💾 Salvar e recalcular</button>
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <button class="danger" onclick="limparDadosMes()" style="padding:9px 16px;font-size:13px">🗑️ Limpar dados</button>
-      </div>
-      <div class="field" style="flex:0 0 auto">
-        <label>&nbsp;</label>
-        <a class="btn-ghost" id="link-recibos" href="/recibos">📄 Ver recibos</a>
-      </div>
-    </div>
-    <span id="header-toast" class="toast"></span>
-  </div>
+    App.mount('mes');
 
-  <!-- ─────────── STATS DO MÊS ─────────── -->
-  <div class="grid stats-mes" style="margin-bottom:16px">
-    <div class="stat stat-pago">
-      <div class="label">Casas pagas</div>
-      <div class="value" id="s-pagas" style="color:var(--accent)">—</div>
-      <div class="sub" id="s-pagas-sub"></div>
-    </div>
-    <div class="stat stat-devendo">
-      <div class="label">Devendo</div>
-      <div class="value" id="s-devendo" style="color:var(--err)">—</div>
-      <div class="sub" id="s-devendo-sub"></div>
-    </div>
-    <div class="stat stat-agua">
-      <div class="label">💧 Água total</div>
-      <div class="value" id="s-agua" style="color:var(--c-agua)">—</div>
-    </div>
-    <div class="stat stat-luz">
-      <div class="label">💡 Luz total</div>
-      <div class="value" id="s-luz" style="color:var(--c-luz)">—</div>
-    </div>
-    <div class="stat stat-aluguel">
-      <div class="label">🏠 Aluguel recebido</div>
-      <div class="value" id="s-aluguel" style="color:var(--c-aluguel)">—</div>
-    </div>
-  </div>
+    var boot = null;      // GET /api/bootstrap
+    var dados = null;     // payload de mês (fonte única da verdade — vem do backend)
+    var sel = App.mesAtual();
+    var editando = {};    // lancamento_id -> true (painel de edição inline aberto)
+    var carregando = false;
 
-  <!-- ─────────── HEADER DO MÊS (água + relógios) ─────────── -->
-  <div class="card" id="card-header">
-    <h2>Contas do mês <span id="ref-mes" class="right"></span></h2>
+    var elTabs = document.getElementById('tabs');
+    var elConteudo = document.getElementById('conteudo');
 
-    <div class="field-inline">
-      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
-        <label style="color:var(--c-agua)">💧 Conta de água — total (R$)</label>
-        <input id="agua-total" type="number" step="0.01" min="0">
-      </div>
-      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
-        <label style="color:var(--c-agua)">💧 Divisor</label>
-        <input id="agua-divisor" type="number" step="0.5" min="1">
-      </div>
-      <div class="field" style="flex:2">
-        <label>&nbsp;</label>
-        <span id="agua-por-unidade" style="display:inline-block;padding:9px 0;color:var(--c-agua);font-size:13px;font-weight:600"></span>
-      </div>
-    </div>
+    // ---------- helpers ----------
+    function esc(s) { return App.escapeHtml(s == null ? '' : String(s)); }
+    function money(n) { return App.money(Number(n) || 0); }
+    function el(id) { return document.getElementById(id); }
+    function val(id) { var e = el(id); return e ? e.value : ''; }
+    function valData(id) { var v = (val(id) || '').trim(); return v ? v : null; }
 
-    <div id="relogios-area" style="margin-top:10px"></div>
-  </div>
+    // aceita "1.234,56", "1234.56", "R$ 90" — o front só lê, quem calcula é o backend
+    function parseMoeda(v) {
+      var s = String(v == null ? '' : v).replace(/[^0-9,.-]/g, '').trim();
+      if (!s) return 0;
+      if (s.indexOf(',') > -1) s = s.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    }
+    function moedaInput(n) {
+      var v = Number(n) || 0;
+      return v ? App.num(v) : '';
+    }
+    function listaPt(arr) {
+      var a = (arr || []).map(function (x) { return String(x); });
+      if (!a.length) return '—';
+      if (a.length === 1) return a[0];
+      return a.slice(0, -1).join(', ') + ' e ' + a[a.length - 1];
+    }
+    function badgeVenc(iso) {
+      if (!iso) return '';
+      var s = App.statusVenc(iso);
+      if (!s || !s.texto) return '';
+      return '<span class="badge ' + esc(s.classe) + '">' + esc(s.texto) + '</span>';
+    }
+    function ocupado(btn, ligado, texto) {
+      if (!btn) return;
+      if (ligado) {
+        if (!btn.dataset.txt) btn.dataset.txt = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = esc(texto || 'Salvando…');
+      } else {
+        btn.disabled = false;
+        if (btn.dataset.txt) btn.innerHTML = btn.dataset.txt;
+      }
+    }
+    function dis(b) { return b ? ' disabled' : ''; }
 
-  <!-- ─────────── VENCIMENTOS LADO A LADO ─────────── -->
-  <div class="card" id="card-vencimentos">
-    <h2>🗓️ Vencimentos do mês</h2>
-    <div class="field-inline">
-      <div class="field" style="border-left:3px solid var(--c-agua);padding-left:10px">
-        <label style="color:var(--c-agua)">💧 Água vence dia (1-31)</label>
-        <input id="venc-agua" type="number" min="1" max="31" placeholder="ex: 10">
-      </div>
-      <div class="field" style="border-left:3px solid var(--c-luz);padding-left:10px">
-        <label style="color:var(--c-luz)">💡 Luz vence dia (1-31)</label>
-        <input id="venc-luz" type="number" min="1" max="31" placeholder="ex: 15">
-      </div>
-    </div>
-    <p style="color:var(--muted);font-size:12px;margin:10px 0 0">
-      Use o botão <strong>💾 Salvar e recalcular</strong> no topo pra gravar.
-    </p>
-  </div>
+    // ---------- carga ----------
+    function skeleton() {
+      elConteudo.innerHTML =
+        '<div class="skeleton m-sk"></div>' +
+        '<div class="skeleton m-sk-alto"></div>' +
+        '<div class="skeleton m-sk"></div>';
+    }
 
-  <!-- ─────────── TABELA DE LANÇAMENTOS ─────────── -->
-  <div class="card">
-    <h2>Lançamentos por casa</h2>
-    <div style="overflow-x:auto">
-      <table class="tbl-lanc" id="tbl-lancamentos">
-        <thead>
-          <tr>
-            <th>Casa</th>
-            <th style="min-width:140px">Inquilino</th>
-            <th class="col-agua" style="text-align:right">💧 Água</th>
-            <th class="col-agua">✓</th>
-            <th class="col-luz" style="text-align:right">💡 Luz</th>
-            <th class="col-luz">✓</th>
-            <th class="col-outros" style="min-width:120px">📦 Outros</th>
-            <th class="col-outros" style="text-align:right">R$</th>
-            <th class="col-outros">✓</th>
-            <th class="col-aluguel" style="text-align:right">🏠 Aluguel</th>
-            <th class="col-aluguel">✓</th>
-            <th class="col-total" style="text-align:right">💰 Total</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-lanc"></tbody>
-      </table>
-    </div>
-    <p style="color:var(--muted);font-size:12px;margin-top:10px">
-      Edite valores direto na célula — salva ao sair do campo (Tab).
-      Cada ✓ é um item. O botão <strong>Status</strong> à direita marca/desmarca <em>tudo</em> de uma vez.
-    </p>
-  </div>
+    function erroTela(e) {
+      elConteudo.innerHTML =
+        '<div class="empty">' +
+        '<div class="empty-icon">⚠️</div>' +
+        '<p class="strong">Não deu para carregar o mês</p>' +
+        '<p class="muted small">' + esc((e && e.message) || 'Erro inesperado') + '</p>' +
+        '<p><button type="button" class="btn btn-primary" data-acao="recarregar">Tentar de novo</button></p>' +
+        '</div>';
+    }
 
-  <!-- ─────────── PAIS (split 50/50 + descontos) ─────────── -->
-  <div class="card">
-    <h2>👨👩 Repasse pai e mãe (50/50 do aluguel recebido)</h2>
+    async function iniciar() {
+      sel = App.mesAtual();
+      skeleton();
+      try {
+        boot = await App.api('/bootstrap');
+      } catch (e) {
+        erroTela(e);
+        return;
+      }
+      if (!boot.meses) boot.meses = [];
+      renderTabs();
+      await carregarMes(sel.ano, sel.mes);
+    }
 
-    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))">
-      <div class="stat stat-aluguel">
-        <div class="label">Aluguel recebido</div>
-        <div class="value" id="t-aluguel-recebido" style="color:var(--c-aluguel)">—</div>
-      </div>
-      <div class="stat">
-        <div class="label">👨 Pai — bruto 50%</div>
-        <div class="value" id="t-bruto-pai" style="color:var(--info)">—</div>
-      </div>
-      <div class="stat">
-        <div class="label">👩 Mãe — bruto 50%</div>
-        <div class="value" id="t-bruto-mae" style="color:var(--info)">—</div>
-      </div>
-    </div>
+    async function carregarMes(ano, mes) {
+      if (carregando) return;
+      carregando = true;
+      editando = {};
+      skeleton();
+      try {
+        var p = await App.api('/mes/' + ano + '/' + mes);
+        sel = { ano: ano, mes: mes };
+        App.setMes(ano, mes);
+        aplicar(p);
+        renderTabs();
+      } catch (e) {
+        erroTela(e);
+      } finally {
+        carregando = false;
+      }
+    }
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px" id="grid-pais">
-      <div id="bloco-pai"></div>
-      <div id="bloco-mae"></div>
-    </div>
-  </div>
+    // Toda rota de escrita devolve mes_completo: uma requisição, tela inteira atualizada.
+    function aplicar(payload) {
+      if (!payload || !payload.mes) {
+        App.toast('Resposta do servidor sem os dados do mês', 'err');
+        return;
+      }
+      dados = payload;
+      sincronizarLista();
+      render();
+      renderTabs();
+    }
 
-</main>
+    // mantém as abas coerentes com o mês carregado (inclusive quando foi criado agora)
+    function sincronizarLista() {
+      if (!boot || !dados) return;
+      var m = dados.mes;
+      var achou = null;
+      for (var i = 0; i < boot.meses.length; i++) {
+        if (boot.meses[i].ano === m.ano && boot.meses[i].mes === m.mes) { achou = boot.meses[i]; break; }
+      }
+      if (achou) {
+        achou.fechado = m.fechado ? 1 : 0;
+      } else {
+        boot.meses.push({ ano: m.ano, mes: m.mes, label: m.label || App.mesLabel(m.ano, m.mes), fechado: m.fechado ? 1 : 0 });
+        boot.meses.sort(function (a, b) { return (a.ano - b.ano) || (a.mes - b.mes); });
+      }
+    }
 
-<script>
-let mesAtual = null;
+    function proximoMes() {
+      var lista = (boot && boot.meses) || [];
+      if (!lista.length) return { ano: App.INICIO.ano, mes: App.INICIO.mes };
+      var u = lista[lista.length - 1];
+      var a = u.ano, m = u.mes + 1;
+      if (m > 12) { m = 1; a += 1; }
+      return { ano: a, mes: m };
+    }
 
-function brl(n) {
-  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-function toast(elId, msg, ok) {
-  const el = document.getElementById(elId);
-  el.className = 'toast ' + (ok ? 'ok' : 'err');
-  el.textContent = msg;
-  setTimeout(() => { el.className = 'toast'; el.textContent = ''; }, 3000);
-}
-async function api(method, url, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; throw new Error('Não autenticado'); }
-  return r.json();
-}
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
+    // ---------- abas de mês ----------
+    function renderTabs() {
+      var lista = (boot && boot.meses) || [];
+      var h = '<div class="tabs tabs-scroll" role="tablist" aria-label="Selecionar mês">';
+      lista.forEach(function (m) {
+        var ativo = (m.ano === sel.ano && m.mes === sel.mes);
+        var curto = App.nomeMes(m.mes).slice(0, 3) + '/' + String(m.ano).slice(-2);
+        var full = m.label || App.mesLabel(m.ano, m.mes);
+        h += '<button type="button" role="tab" aria-selected="' + (ativo ? 'true' : 'false') + '"' +
+          ' class="tab' + (ativo ? ' is-active' : '') + '"' +
+          ' title="' + esc(full) + '" data-acao="ir-mes" data-ano="' + m.ano + '" data-mes="' + m.mes + '">' +
+          esc(curto) + (m.fechado ? ' 🔒' : '') + '</button>';
+      });
+      var p = proximoMes();
+      var lp = App.mesLabel(p.ano, p.mes);
+      h += '<button type="button" class="tab m-tab-novo" data-acao="novo-mes"' +
+        ' aria-label="Criar ' + esc(lp) + '" title="Criar ' + esc(lp) + '">+</button>';
+      h += '</div>';
+      elTabs.innerHTML = h;
 
-// ── Inicialização do seletor a partir do mes-ref persistente ──
-const refIni = getMesRef();
-const selAno = document.getElementById('sel-ano');
-const selMes = document.getElementById('sel-mes');
-selAno.value = refIni.ano;
-preencherOpcoesMes(selMes, refIni.ano);
-selMes.value = refIni.mes;
+      var ativo = elTabs.querySelector('.tab.is-active');
+      var faixa = elTabs.querySelector('.tabs-scroll');
+      if (ativo && faixa) {
+        faixa.scrollLeft = ativo.offsetLeft - (faixa.clientWidth / 2) + (ativo.offsetWidth / 2);
+      }
+    }
 
-// Tag de mês ativo no header
-document.addEventListener('DOMContentLoaded', () => {
-  const r = getMesRef();
-  const t = document.getElementById('tag-mes-ativo-txt');
-  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
-});
+    // ---------- render principal ----------
+    function render() {
+      if (!dados) return;
+      var bloq = !!dados.mes.fechado;
+      elConteudo.innerHTML =
+        secTopo(bloq) +
+        secContas(bloq) +
+        secKpis() +
+        secCasas(bloq) +
+        secAcoes(bloq);
+    }
 
-// Auto-load ao mudar Ano ou Mês
-selAno.addEventListener('change', () => {
-  let ano = parseInt(selAno.value, 10);
-  if (!ano || ano < 2026) { ano = 2026; selAno.value = 2026; }
-  const mesPrev = parseInt(selMes.value, 10);
-  preencherOpcoesMes(selMes, ano);
-  // Mantém o mês previamente selecionado se ainda for válido
-  const opts = [...selMes.options].map(o => parseInt(o.value, 10));
-  selMes.value = opts.includes(mesPrev) ? mesPrev : opts[0];
-  carregarMes();
-});
-selMes.addEventListener('change', () => carregarMes());
+    function secTopo(bloq) {
+      var m = dados.mes;
+      return '<div class="m-topo">' +
+        '<h1 class="m-tit">' + esc(m.label || App.mesLabel(m.ano, m.mes)) + '</h1>' +
+        (bloq ? '<span class="badge badge-warn">Mês fechado</span>' : '') +
+        '</div>' +
+        (bloq ? '<p class="muted small">Mês fechado para edição. Reabra lá embaixo para lançar ou marcar pagamentos.</p>' : '');
+    }
 
-async function carregarMes() {
-  const ano = parseInt(selAno.value, 10);
-  const mes = parseInt(selMes.value, 10);
-  if (!ano || !mes) return;
-  setMesRef(ano, mes);
-  document.getElementById('tag-mes-ativo-txt').textContent = `${NOMES_MES[mes]}/${ano}`;
-  document.getElementById('link-recibos').href = `/recibos?ano=${ano}&mes=${mes}`;
+    function secContas(bloq) {
+      var m = dados.mes;
+      var agua = dados.agua || { total: 0, moradores_total: 0, valor_por_cabeca: 0 };
+      var relogios = dados.relogios || [];
 
-  const data = await api('GET', `/api/mes/${ano}/${mes}`);
-  if (data && data.error) {
-    toast('header-toast', '❌ ' + data.error, false);
-    return;
-  }
-  mesAtual = data;
-  document.getElementById('ref-mes').textContent = `${NOMES_MES[mes]} / ${ano}`;
-  renderHeader(data);
-  renderStats(data);
-  renderLancamentos(data);
-  renderPais(data);
-}
+      var h = '<section class="card card-accent-brand">' +
+        '<div class="card-head">' +
+        '<div><div class="card-title">Contas do mês</div>' +
+        '<div class="card-sub">Lance os valores e salve para o sistema calcular o rateio</div></div>' +
+        '</div>' +
+        '<div class="card-body stack">';
 
-function renderStats(data) {
-  const t = data.totais;
-  document.getElementById('s-pagas').textContent   = `${t.casas_pagas}/${t.casas_total}`;
-  document.getElementById('s-pagas-sub').textContent = t.casas_total ? `${Math.round(100 * t.casas_pagas / t.casas_total)}% quitado` : '';
-  document.getElementById('s-devendo').textContent = t.casas_devendo;
-  document.getElementById('s-devendo-sub').textContent = t.casas_devendo ? 'casas com pendência' : 'tudo em dia 🎉';
-  document.getElementById('s-agua').textContent    = brl(t.agua_cobrado);
-  document.getElementById('s-luz').textContent     = brl(t.luz_cobrado);
-  document.getElementById('s-aluguel').textContent = brl(t.aluguel_recebido);
-}
+      // ÁGUA
+      h += '<div class="stack">' +
+        '<div class="row"><span class="badge badge-agua">Água</span>' +
+        (m.agua_vencimento ? ' ' + badgeVenc(m.agua_vencimento) : '') + '</div>' +
+        '<div class="form-grid">' +
+        '<div class="field"><label class="field-label" for="f-agua-total">Valor total da água (R$)</label>' +
+        '<div class="input-money"><input class="input" id="f-agua-total" type="text" inputmode="decimal" placeholder="0,00" value="' +
+        esc(moedaInput(m.agua_total)) + '"' + dis(bloq) + '></div>' +
+        '<span class="field-hint">Dividido por pessoa entre as casas ocupadas</span></div>' +
+        '<div class="field"><label class="field-label" for="f-agua-venc">Vencimento da água</label>' +
+        '<input class="input" id="f-agua-venc" type="date" value="' + esc(m.agua_vencimento || '') + '"' + dis(bloq) + '></div>' +
+        '</div>' +
+        '<div class="m-rateio"><span class="muted small">Rateio:</span> ' +
+        '<b class="money">' + money(agua.valor_por_cabeca) + '</b> <span class="muted small">por pessoa</span>' +
+        '<span class="dim small">· ' + esc(String(agua.moradores_total || 0)) + ' pessoa(s) no mês</span></div>' +
+        '</div>';
 
-function renderHeader(data) {
-  document.getElementById('agua-total').value   = data.mes.agua_total   || '';
-  document.getElementById('agua-divisor').value = data.mes.agua_divisor || 10;
-  document.getElementById('venc-agua').value    = data.mes.vencimento_agua || '';
-  document.getElementById('venc-luz').value     = data.mes.vencimento_luz  || '';
-  atualizarPorUnidadeAgua();
+      // LUZ — uma conta por relógio
+      if (!relogios.length) {
+        h += '<p class="muted small">Nenhum relógio de luz configurado neste mês.</p>';
+      }
+      relogios.forEach(function (r) {
+        h += '<div class="m-relogio stack">' +
+          '<div class="row"><span class="badge badge-luz">' + esc(r.nome || ('Relógio ' + r.relogio)) + '</span>' +
+          (r.vencimento ? ' ' + badgeVenc(r.vencimento) : '') + '</div>' +
+          '<p class="muted small">Casas ' + esc(listaPt(r.casas)) + ' · ' +
+          esc(String(r.casas_ocupadas || 0)) + ' ocupada(s)</p>' +
+          '<div class="form-grid">' +
+          '<div class="field"><label class="field-label" for="f-luz-valor-' + r.relogio + '">Valor total (R$)</label>' +
+          '<div class="input-money"><input class="input" id="f-luz-valor-' + r.relogio + '" type="text" inputmode="decimal" placeholder="0,00" value="' +
+          esc(moedaInput(r.valor_total)) + '"' + dis(bloq) + '></div></div>' +
+          '<div class="field"><label class="field-label" for="f-luz-venc-' + r.relogio + '">Vencimento</label>' +
+          '<input class="input" id="f-luz-venc-' + r.relogio + '" type="date" value="' + esc(r.vencimento || '') + '"' + dis(bloq) + '></div>' +
+          '</div>' +
+          '<div class="m-rateio"><span class="muted small">Rateio:</span> ' +
+          '<b class="money">' + money(r.valor_por_peso) + '</b> <span class="muted small">por casa (peso 1)</span>' +
+          '<span class="dim small">· peso total ' + esc(App.num(r.peso_total || 0)) + '</span></div>' +
+          '</div>';
+      });
 
-  const area = document.getElementById('relogios-area');
-  const html = data.relogios.map(r => `
-    <div class="field-inline" data-relogio="${r.relogio}" style="border-left:3px solid var(--c-luz);padding-left:10px;margin-bottom:10px">
-      <div class="field">
-        <label style="color:var(--c-luz)">💡 Conta luz — relógio ${r.relogio} (R$)</label>
-        <input class="rel-valor" type="number" step="0.01" min="0" value="${r.valor_total || ''}">
-      </div>
-      <div class="field" style="flex:2">
-        <label>&nbsp;</label>
-        <span style="display:inline-block;padding:9px 0;color:var(--muted);font-size:12px">
-          Casas neste relógio: ${data.lancamentos.filter(l => l.casa_relogio_luz === r.relogio).map(l => `${l.casa_numero}${l.vazia ? '(vazia)' : ''}`).join(', ')}
-        </span>
-      </div>
-    </div>
-  `).join('');
-  area.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Configure os relógios na aba <a href="/casas" style="color:var(--accent)">Casas</a>.</p>';
-}
+      // ALUGUEL
+      h += '<div class="stack">' +
+        '<div class="row"><span class="badge badge-aluguel">Aluguel</span>' +
+        (m.aluguel_vencimento ? ' ' + badgeVenc(m.aluguel_vencimento) : '') + '</div>' +
+        '<div class="form-grid">' +
+        '<div class="field"><label class="field-label" for="f-aluguel-venc">Vencimento do aluguel</label>' +
+        '<input class="input" id="f-aluguel-venc" type="date" value="' + esc(m.aluguel_vencimento || '') + '"' + dis(bloq) + '></div>' +
+        '</div>' +
+        '<p class="field-hint">O valor do aluguel é por casa — edite no card da casa.</p>' +
+        '</div>';
 
-function atualizarPorUnidadeAgua() {
-  const total = parseFloat(document.getElementById('agua-total').value) || 0;
-  const div = parseFloat(document.getElementById('agua-divisor').value) || 0;
-  const unidade = div > 0 ? total / div : 0;
-  document.getElementById('agua-por-unidade').textContent =
-    div > 0 ? `→ ${brl(unidade)} por unidade` : '';
-}
-document.getElementById('agua-total').addEventListener('input', atualizarPorUnidadeAgua);
-document.getElementById('agua-divisor').addEventListener('input', atualizarPorUnidadeAgua);
+      h += '</div>' +
+        '<div class="card-foot">' +
+        '<button type="button" class="btn btn-primary btn-lg btn-block" data-acao="salvar-mes"' + dis(bloq) + '>Salvar e calcular</button>' +
+        '</div></section>';
+      return h;
+    }
 
-async function limparDadosMes() {
-  if (!mesAtual) return;
-  const ref = `${NOMES_MES[mesAtual.mes.mes]}/${mesAtual.mes.ano}`;
-  if (!confirm(`⚠️ ATENÇÃO\n\nIsso vai ZERAR TODOS OS DADOS do mês ${ref}:\n\n• Conta de água (total, divisor, vencimento)\n• Contas de luz por relógio + vencimento\n• Valores calculados de água e luz das casas\n• Item "Outros" e seu valor\n• TODOS os marcadores de pago/não-pago\n• Descontos e pagamentos do pai/mãe\n\nMantém: inquilinos atuais e o aluguel padrão de cada casa.\n\nTem certeza?`)) return;
-  if (!confirm(`Última confirmação: limpar mesmo o mês ${ref}?\n\nNão tem como desfazer.`)) return;
-  try {
-    await api('POST', `/api/mes/${mesAtual.mes.id}/limpar`);
-    await carregarMes();
-    toast('header-toast', `🗑️ Dados de ${ref} foram limpos`, true);
-  } catch (e) {
-    toast('header-toast', '❌ ' + e.message, false);
-  }
-}
+    function secKpis() {
+      var t = dados.totais || {};
+      function stat(label, valor, hint, cls) {
+        return '<div class="stat">' +
+          '<div class="stat-label">' + esc(label) + '</div>' +
+          '<div class="stat-value ' + (cls || '') + '">' + valor + '</div>' +
+          '<div class="stat-hint">' + hint + '</div></div>';
+      }
+      return '<div class="stat-row">' +
+        stat('Total cobrado', money(t.total_cobrado), esc(String(t.casas_ocupadas || 0)) + ' casa(s) ocupada(s)') +
+        stat('Recebido', money(t.total_recebido), 'já pago pelos inquilinos', 'money-paid') +
+        stat('Em aberto', money(t.total_aberto), 'falta receber', 'money-open') +
+        stat('Casas pagas', esc(String(t.casas_pagas || 0)) + ' / ' + esc(String((t.casas_pagas || 0) + (t.casas_devendo || 0))),
+          esc(String(t.casas_devendo || 0)) + ' devendo · ' + esc(String(t.casas_vagas || 0)) + ' vaga(s)') +
+        '</div>';
+    }
 
-async function salvarHeader() {
-  if (!mesAtual) return;
-  const aguaTotal = parseFloat(document.getElementById('agua-total').value) || 0;
-  const aguaDivisor = parseFloat(document.getElementById('agua-divisor').value) || 10;
-  const vAgua = parseInt(document.getElementById('venc-agua').value, 10);
-  const vLuz  = parseInt(document.getElementById('venc-luz').value, 10);
-  const relogios = [...document.querySelectorAll('#relogios-area [data-relogio]')].map(el => ({
-    relogio: parseInt(el.dataset.relogio, 10),
-    valor_total: parseFloat(el.querySelector('.rel-valor').value) || 0,
-  }));
-  try {
-    await api('PUT', `/api/mes/${mesAtual.mes.id}/header`, {
-      agua_total: aguaTotal,
-      agua_divisor: aguaDivisor,
-      vencimento_agua: Number.isFinite(vAgua) && vAgua > 0 ? vAgua : null,
-      vencimento_luz:  Number.isFinite(vLuz)  && vLuz  > 0 ? vLuz  : null,
-      relogios,
+    // --- lista das casas ---
+    function itemLinha(c, chave, rotulo, badgeCls, venc, bloq) {
+      var valor = Number(c[chave + '_valor']) || 0;
+      var pago = !!c[chave + '_pago'];
+      var pagoEm = c[chave + '_pago_em'];
+      var zero = valor <= 0;
+      var travado = bloq || zero;
+      var extra = '';
+      if (chave === 'outros' && c.outros_descricao) {
+        extra = '<span class="small truncate">' + esc(c.outros_descricao) + '</span>';
+      }
+      var direita = pago
+        ? '<span class="small muted">pago em ' + esc(App.dataBR(pagoEm)) + '</span>'
+        : (!zero && venc ? badgeVenc(venc) : '');
+
+      return '<label class="m-item' + (zero ? ' is-zero' : '') + (bloq ? ' is-bloq' : '') + (pago ? ' is-pago' : '') + '">' +
+        '<input type="checkbox" class="check js-pago" data-id="' + c.lancamento_id + '" data-item="' + chave + '"' +
+        (pago ? ' checked' : '') + dis(travado) +
+        ' aria-label="Marcar ' + esc(rotulo) + ' da casa ' + esc(c.casa_str) + ' como pago">' +
+        '<span class="m-item-info">' +
+        '<span class="badge ' + badgeCls + '">' + esc(rotulo) + '</span>' + extra +
+        (direita ? ' ' + direita : '') +
+        '</span>' +
+        '<span class="m-item-val money ' + (zero ? 'dim' : (pago ? 'money-paid' : 'money-open')) + '">' + money(valor) + '</span>' +
+        '</label>';
+    }
+
+    function cardCasa(c, bloq) {
+      var m = dados.mes;
+      var vaga = !!c.vazia;
+      var h = '<article class="card' + (vaga ? ' m-vaga' : '') + '" data-casa="' + c.casa_id + '">' +
+        '<div class="card-head">' +
+        '<div><div class="card-title">Casa ' + esc(c.casa_str) + ' ' +
+        (vaga ? '<span class="badge badge-dim">vaga</span>'
+          : (c.tudo_pago ? '<span class="badge badge-ok">quitada</span>' : '<span class="badge badge-err">em aberto</span>')) +
+        '</div>' +
+        '<div class="card-sub">' +
+        (vaga ? 'sem inquilino — nada a cobrar'
+          : esc(c.inquilino || 'sem nome') + ' · ' + esc(String(c.moradores || 0)) + ' morador(es) · relógio ' + esc(String(c.relogio))) +
+        '</div></div>' +
+        (vaga ? '' : '<div class="right money-lg money">' + money(c.total_mes) + '</div>') +
+        '</div>';
+
+      if (vaga) {
+        h += '<div class="card-body"><p class="muted small">Casa desocupada neste mês: não entra no rateio da água nem da luz.</p></div>';
+        h += '</article>';
+        return h;
+      }
+
+      h += '<div class="card-body">' +
+        itemLinha(c, 'agua', 'Água', 'badge-agua', m.agua_vencimento, bloq) +
+        itemLinha(c, 'luz', 'Luz', 'badge-luz', vencDoRelogio(c.relogio), bloq) +
+        itemLinha(c, 'outros', 'Outros', 'badge-outros', null, bloq) +
+        itemLinha(c, 'aluguel', 'Aluguel', 'badge-aluguel', m.aluguel_vencimento, bloq);
+
+      if (c.obs) h += '<p class="muted small">' + esc(c.obs) + '</p>';
+      if (c.wa_enviado_em) h += '<p class="dim small">Mensagem enviada em ' + esc(App.dataBR(String(c.wa_enviado_em).slice(0, 10))) + '</p>';
+
+      if (editando[c.lancamento_id]) h += painelEdicao(c);
+      h += '</div>';
+
+      h += '<div class="card-foot m-casa-foot">' +
+        '<div class="m-casa-tot">' +
+        '<span class="small"><span class="muted">Total </span><b class="money">' + money(c.total_mes) + '</b></span>' +
+        '<span class="small"><span class="muted">Pago </span><b class="money money-paid">' + money(c.total_pago) + '</b></span>' +
+        '<span class="small"><span class="muted">Em aberto </span><b class="money ' + (Number(c.total_aberto) > 0 ? 'money-open' : 'money-paid') + '">' + money(c.total_aberto) + '</b></span>' +
+        (c.quitado_em ? '<span class="badge badge-ok">quitado em ' + esc(App.dataBR(c.quitado_em)) + '</span>' : '') +
+        '</div>' +
+        '<div class="row">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-acao="editar" data-id="' + c.lancamento_id + '"' + dis(bloq) + '>' +
+        (editando[c.lancamento_id] ? 'Fechar edição' : 'Editar valores') + '</button>' +
+        (c.tudo_pago
+          ? '<button type="button" class="btn btn-outline btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="0"' + dis(bloq) + '>Desfazer quitação</button>'
+          : '<button type="button" class="btn btn-primary btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="1"' + dis(bloq) + '>Quitar tudo</button>') +
+        '</div></div>';
+
+      h += '</article>';
+      return h;
+    }
+
+    function painelEdicao(c) {
+      var id = c.lancamento_id;
+      return '<div class="m-edit stack">' +
+        '<div class="form-grid">' +
+        '<div class="field"><label class="field-label" for="e-outros-' + id + '">Outros (R$)</label>' +
+        '<div class="input-money"><input class="input" id="e-outros-' + id + '" type="text" inputmode="decimal" placeholder="0,00" value="' +
+        esc(moedaInput(c.outros_valor)) + '"></div></div>' +
+        '<div class="field"><label class="field-label" for="e-outros-desc-' + id + '">Descrição de "outros"</label>' +
+        '<input class="input" id="e-outros-desc-' + id + '" type="text" maxlength="120" placeholder="ex.: gás, conserto do portão" value="' +
+        esc(c.outros_descricao || '') + '"></div>' +
+        '<div class="field"><label class="field-label" for="e-aluguel-' + id + '">Aluguel (R$)</label>' +
+        '<div class="input-money"><input class="input" id="e-aluguel-' + id + '" type="text" inputmode="decimal" placeholder="0,00" value="' +
+        esc(moedaInput(c.aluguel_valor)) + '"></div>' +
+        '<span class="field-hint">Padrão da casa: ' + money(c.aluguel_padrao) + '</span></div>' +
+        '</div>' +
+        '<div class="row">' +
+        '<button type="button" class="btn btn-primary btn-sm" data-acao="salvar-lanc" data-id="' + id + '">Salvar valores</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-acao="cancelar-edit" data-id="' + id + '">Cancelar</button>' +
+        '</div></div>';
+    }
+
+    function vencDoRelogio(relogio) {
+      var rs = dados.relogios || [];
+      for (var i = 0; i < rs.length; i++) if (rs[i].relogio === relogio) return rs[i].vencimento;
+      return null;
+    }
+
+    function secCasas(bloq) {
+      var casas = dados.casas || [];
+      if (!casas.length) {
+        return '<div class="empty"><div class="empty-icon">🏠</div>' +
+          '<p class="strong">Nenhuma casa neste mês</p>' +
+          '<p class="muted small">Cadastre as casas para começar a lançar.</p>' +
+          '<p><a class="btn btn-primary" href="/casas">Ir para Casas</a></p></div>';
+      }
+      var h = '<h2 class="m-tit">Casas</h2><div class="stack">';
+      casas.forEach(function (c) { h += cardCasa(c, bloq); });
+      return h + '</div>';
+    }
+
+    function secAcoes(bloq) {
+      var m = dados.mes;
+      return '<section class="card">' +
+        '<div class="card-head"><div class="card-title">Ações do mês</div></div>' +
+        '<div class="card-body m-acoes">' +
+        '<a class="btn btn-wa" href="/whatsapp">Gerar mensagens</a>' +
+        '<button type="button" class="btn btn-outline" data-acao="fechar-mes" data-fechado="' + (bloq ? '0' : '1') + '">' +
+        (bloq ? 'Reabrir mês' : 'Fechar mês') + '</button>' +
+        '<button type="button" class="btn btn-danger" data-acao="limpar-mes"' + dis(bloq) + '>Limpar mês</button>' +
+        '</div>' +
+        '<div class="card-foot"><p class="muted small">Limpar zera contas, vencimentos, "outros" e as marcações de pagamento de ' +
+        esc(m.label || '') + '. Inquilinos, moradores e aluguel são mantidos.</p></div>' +
+        '</section>';
+    }
+
+    // ---------- ações ----------
+    async function salvarMes(btn) {
+      var body = {
+        agua_total: parseMoeda(val('f-agua-total')),
+        agua_vencimento: valData('f-agua-venc'),
+        aluguel_vencimento: valData('f-aluguel-venc'),
+        relogios: (dados.relogios || []).map(function (r) {
+          return {
+            relogio: r.relogio,
+            valor_total: parseMoeda(val('f-luz-valor-' + r.relogio)),
+            vencimento: valData('f-luz-venc-' + r.relogio)
+          };
+        })
+      };
+      ocupado(btn, true, 'Salvando…');
+      try {
+        var r = await App.api('/mes/' + dados.mes.id, { method: 'PUT', body: body });
+        aplicar(r.mes_completo);
+        App.toast('Contas salvas e rateio recalculado', 'ok');
+      } catch (e) {
+        ocupado(btn, false);
+      }
+    }
+
+    async function marcarPago(id, item, pago, caixa) {
+      if (caixa) caixa.disabled = true;
+      try {
+        var r = await App.api('/lancamento/' + id + '/pago', { method: 'PUT', body: { item: item, pago: !!pago } });
+        aplicar(r.mes_completo);
+        App.toast(pago ? 'Marcado como pago' : 'Pagamento desmarcado', 'ok');
+      } catch (e) {
+        if (caixa) { caixa.checked = !pago; caixa.disabled = false; }
+      }
+    }
+
+    async function salvarLancamento(id, btn) {
+      var desc = (val('e-outros-desc-' + id) || '').trim();
+      var body = {
+        outros_valor: parseMoeda(val('e-outros-' + id)),
+        outros_descricao: desc || null,
+        aluguel_valor: parseMoeda(val('e-aluguel-' + id))
+      };
+      ocupado(btn, true, 'Salvando…');
+      try {
+        var r = await App.api('/lancamento/' + id, { method: 'PUT', body: body });
+        delete editando[id];
+        aplicar(r.mes_completo);
+        App.toast('Valores da casa atualizados', 'ok');
+      } catch (e) {
+        ocupado(btn, false);
+      }
+    }
+
+    async function limparMes(btn) {
+      var ok = await App.confirmar({
+        titulo: 'Limpar o mês?',
+        texto: 'Zera água, contas de luz, vencimentos, "outros" e todas as marcações de pagamento de ' +
+          (dados.mes.label || '') + '. Inquilinos, moradores e aluguel continuam.',
+        ok: 'Limpar mês',
+        cancelar: 'Cancelar',
+        perigo: true
+      });
+      if (!ok) return;
+      ocupado(btn, true, 'Limpando…');
+      try {
+        var r = await App.api('/mes/' + dados.mes.id + '/limpar', { method: 'POST' });
+        editando = {};
+        aplicar(r.mes_completo);
+        App.toast('Mês limpo', 'ok');
+      } catch (e) {
+        ocupado(btn, false);
+      }
+    }
+
+    async function fecharMes(fechado, btn) {
+      if (fechado) {
+        var ok = await App.confirmar({
+          titulo: 'Fechar o mês?',
+          texto: 'Com o mês fechado nada mais pode ser lançado nem marcado como pago. Dá para reabrir depois.',
+          ok: 'Fechar mês',
+          cancelar: 'Cancelar'
+        });
+        if (!ok) return;
+      }
+      ocupado(btn, true, fechado ? 'Fechando…' : 'Reabrindo…');
+      try {
+        var r = await App.api('/mes/' + dados.mes.id + '/fechar', { method: 'PUT', body: { fechado: !!fechado } });
+        if (fechado) editando = {};
+        aplicar(r.mes_completo);
+        App.toast(fechado ? 'Mês fechado' : 'Mês reaberto', 'ok');
+      } catch (e) {
+        ocupado(btn, false);
+      }
+    }
+
+    async function criarProximo(btn) {
+      var p = proximoMes();
+      var ok = await App.confirmar({
+        titulo: 'Criar ' + App.mesLabel(p.ano, p.mes) + '?',
+        texto: 'Um lançamento por casa será criado com os dados atuais de inquilino, moradores e aluguel.',
+        ok: 'Criar mês',
+        cancelar: 'Cancelar'
+      });
+      if (!ok) return;
+      ocupado(btn, true, '…');
+      await carregarMes(p.ano, p.mes);
+      App.toast(App.mesLabel(p.ano, p.mes) + ' pronto para lançar', 'ok');
+    }
+
+    // ---------- eventos (delegação) ----------
+    document.addEventListener('click', function (ev) {
+      var alvo = ev.target;
+      if (!alvo || !alvo.closest) return;
+      var btn = alvo.closest('[data-acao]');
+      if (!btn) return;
+      var acao = btn.getAttribute('data-acao');
+      var id = btn.getAttribute('data-id');
+
+      if (acao === 'ir-mes') {
+        ev.preventDefault();
+        carregarMes(parseInt(btn.getAttribute('data-ano'), 10), parseInt(btn.getAttribute('data-mes'), 10));
+      } else if (acao === 'novo-mes') {
+        ev.preventDefault();
+        criarProximo(btn);
+      } else if (acao === 'recarregar') {
+        ev.preventDefault();
+        iniciar();
+      } else if (acao === 'salvar-mes') {
+        ev.preventDefault();
+        salvarMes(btn);
+      } else if (acao === 'editar') {
+        ev.preventDefault();
+        if (editando[id]) delete editando[id]; else editando[id] = true;
+        render();
+      } else if (acao === 'cancelar-edit') {
+        ev.preventDefault();
+        delete editando[id];
+        render();
+      } else if (acao === 'salvar-lanc') {
+        ev.preventDefault();
+        salvarLancamento(id, btn);
+      } else if (acao === 'quitar') {
+        ev.preventDefault();
+        marcarPago(id, 'tudo', btn.getAttribute('data-pago') === '1', null);
+      } else if (acao === 'limpar-mes') {
+        ev.preventDefault();
+        limparMes(btn);
+      } else if (acao === 'fechar-mes') {
+        ev.preventDefault();
+        fecharMes(btn.getAttribute('data-fechado') === '1', btn);
+      }
     });
-    await carregarMes();
-    toast('header-toast', '✅ Salvo e recalculado', true);
-  } catch (e) {
-    toast('header-toast', '❌ ' + e.message, false);
-  }
-}
 
-function statusClass(l) {
-  if (l.vazia) return '';
-  if (l.tudo_pago) return 'row-pago';
-  const pagos = (l.agua_pago?1:0) + (l.luz_pago?1:0) + (l.outros_pago?1:0) + (l.aluguel_pago?1:0);
-  const itens = (l.agua_valor>0?1:0) + (l.luz_valor>0?1:0) + (l.outros_valor>0?1:0) + (l.aluguel_valor>0?1:0);
-  if (pagos > 0 && pagos < itens) return 'row-parcial';
-  return 'row-devendo';
-}
+    document.addEventListener('change', function (ev) {
+      var alvo = ev.target;
+      if (!alvo || !alvo.closest) return;
+      var caixa = alvo.closest('.js-pago');
+      if (!caixa) return;
+      marcarPago(caixa.getAttribute('data-id'), caixa.getAttribute('data-item'), caixa.checked, caixa);
+    });
 
-function renderLancamentos(data) {
-  const tbody = document.getElementById('tbody-lanc');
-  tbody.innerHTML = data.lancamentos.map(l => {
-    const total = (l.agua_valor || 0) + (l.luz_valor || 0) + (l.outros_valor || 0) + (l.aluguel_valor || 0);
-    const cls = (l.vazia ? 'linha-vazia' : statusClass(l));
-    const casaStr = String(l.casa_numero).padStart(2, '0');
-    const tudoPago = !!l.tudo_pago;
-    const togBtn = l.vazia
-      ? '<span style="color:var(--muted);font-size:11px">—</span>'
-      : `<span class="toggle-pago ${tudoPago ? 'is-pago' : ''}" onclick="togglePagoTudo(${l.id}, ${tudoPago ? 0 : 1})">${tudoPago ? 'PAGO' : 'PENDENTE'}</span>`;
-    return `
-      <tr data-id="${l.id}" class="${cls}">
-        <td><span class="casa-num">${casaStr}</span></td>
-        <td>
-          <input type="text" value="${escapeHtml(l.inquilino || '')}" data-field="inquilino"
-                 placeholder="(vazia)" onblur="onCellChange(this)">
-        </td>
-        <td class="cel-agua"><input type="number" step="0.01" value="${l.agua_valor || 0}" data-field="agua_valor" onblur="onCellChange(this)"></td>
-        <td class="cel-agua"><input type="checkbox" data-field="agua_pago" ${l.agua_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td class="cel-luz"><input type="number" step="0.01" value="${l.luz_valor || 0}" data-field="luz_valor" onblur="onCellChange(this)"></td>
-        <td class="cel-luz"><input type="checkbox" data-field="luz_pago" ${l.luz_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td class="cel-outros"><input type="text" value="${escapeHtml(l.outros_descricao || '')}" data-field="outros_descricao" onblur="onCellChange(this)" placeholder="—"></td>
-        <td class="cel-outros"><input type="number" step="0.01" value="${l.outros_valor || 0}" data-field="outros_valor" onblur="onCellChange(this)"></td>
-        <td class="cel-outros"><input type="checkbox" data-field="outros_pago" ${l.outros_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td class="cel-aluguel"><input type="number" step="0.01" value="${l.aluguel_valor || 0}" data-field="aluguel_valor" onblur="onCellChange(this)"></td>
-        <td class="cel-aluguel"><input type="checkbox" data-field="aluguel_pago" ${l.aluguel_pago ? 'checked' : ''} onchange="onCellChange(this)"></td>
-        <td class="cel-total num">${brl(total)}</td>
-        <td>${togBtn}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-async function togglePagoTudo(lancId, pago) {
-  await api('PUT', `/api/lancamento/${lancId}/tudo-pago`, { pago: !!pago });
-  await carregarMes();
-}
-
-async function onCellChange(input) {
-  const tr = input.closest('tr');
-  const id = tr.dataset.id;
-  const field = input.dataset.field;
-  let value;
-  if (input.type === 'checkbox') value = input.checked ? 1 : 0;
-  else if (input.type === 'number') value = parseFloat(input.value) || 0;
-  else value = input.value;
-
-  const body = { [field]: value };
-  if (field === 'inquilino') {
-    body.vazia = value && String(value).trim() ? 0 : 1;
-  }
-
-  try {
-    await api('PUT', `/api/lancamento/${id}`, body);
-    await carregarMes();
-  } catch (e) {
-    alert('Erro ao salvar: ' + e.message);
-  }
-}
-
-// ──────── PAIS ────────
-function renderPais(data) {
-  document.getElementById('t-aluguel-recebido').textContent = brl(data.totais.aluguel_recebido);
-  document.getElementById('t-bruto-pai').textContent = brl(data.totais.bruto_pai);
-  document.getElementById('t-bruto-mae').textContent = brl(data.totais.bruto_mae);
-
-  document.getElementById('bloco-pai').innerHTML = blocoPai('pai', '👨 Pai',
-    data.totais.bruto_pai, data.totais.desconto_pai, data.totais.liquido_pai,
-    data.descontos.filter(d => d.destinatario === 'pai'),
-    data.pagamentos.find(p => p.destinatario === 'pai') || { pago: 0 });
-
-  document.getElementById('bloco-mae').innerHTML = blocoPai('mae', '👩 Mãe',
-    data.totais.bruto_mae, data.totais.desconto_mae, data.totais.liquido_mae,
-    data.descontos.filter(d => d.destinatario === 'mae'),
-    data.pagamentos.find(p => p.destinatario === 'mae') || { pago: 0 });
-}
-
-function blocoPai(dest, titulo, bruto, desc, liquido, descontos, pagamento) {
-  const linhas = descontos.map(d => `
-    <tr>
-      <td>${escapeHtml(d.descricao)}</td>
-      <td class="num">${brl(d.valor)}</td>
-      <td><button class="danger" onclick="removerDesconto(${d.id})">×</button></td>
-    </tr>
-  `).join('') || `<tr><td colspan="3" style="color:var(--muted);font-size:12px">Sem descontos.</td></tr>`;
-
-  const corDest = dest === 'pai' ? 'var(--info)' : '#ff8bc1';
-
-  return `
-    <div style="border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--panel-2);border-left:4px solid ${corDest}">
-      <h3 style="margin:0 0 10px;font-size:15px">${titulo}</h3>
-
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-        <span>Bruto (50%)</span><span>${brl(bruto)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--err)">
-        <span>− Descontos</span><span>${brl(desc)}</span>
-      </div>
-      <hr style="border:0;border-top:1px solid var(--border);margin:6px 0">
-      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:18px;color:var(--accent)">
-        <span>💰 Líquido</span><span>${brl(liquido)}</span>
-      </div>
-
-      <table style="margin-top:14px">${linhas}</table>
-
-      <div class="field-inline" style="margin-top:10px">
-        <div class="field" style="flex:3">
-          <input type="text" id="desc-desc-${dest}" placeholder="Ex: Seguro do carro" style="width:100%">
-        </div>
-        <div class="field" style="flex:1">
-          <input type="number" step="0.01" id="desc-val-${dest}" placeholder="0,00" style="width:100%">
-        </div>
-        <div class="field">
-          <button class="ghost" onclick="adicionarDesconto('${dest}')">+ Desconto</button>
-        </div>
-      </div>
-
-      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;text-transform:none;font-size:14px;color:var(--txt)">
-        <input type="checkbox" ${pagamento.pago ? 'checked' : ''} onchange="marcarPagoPai('${dest}', this.checked)">
-        ${pagamento.pago ? '✅ Pago' : '⏳ Pendente'}${pagamento.data_pagamento ? ' em ' + pagamento.data_pagamento : ''}
-      </label>
-    </div>
-  `;
-}
-
-async function adicionarDesconto(dest) {
-  const desc = document.getElementById(`desc-desc-${dest}`).value.trim();
-  const valor = parseFloat(document.getElementById(`desc-val-${dest}`).value) || 0;
-  if (!desc) return alert('Informe a descrição');
-  if (valor <= 0) return alert('Informe um valor maior que zero');
-  await api('POST', '/api/desconto', { mes_id: mesAtual.mes.id, destinatario: dest, descricao: desc, valor });
-  await carregarMes();
-}
-async function removerDesconto(id) {
-  if (!confirm('Remover este desconto?')) return;
-  await api('DELETE', '/api/desconto/' + id);
-  await carregarMes();
-}
-async function marcarPagoPai(dest, pago) {
-  await api('PUT', '/api/pagamento-pai', { mes_id: mesAtual.mes.id, destinatario: dest, pago });
-  await carregarMes();
-}
-
-carregarMes();
-</script>
-
+    iniciar();
+  })();
+  </script>
 </body>
 </html>

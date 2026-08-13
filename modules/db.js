@@ -1,5 +1,5 @@
-// modules/db.js — banco SQLite (better-sqlite3, síncrono).
-// O arquivo do banco fica em /app/data/aluguel.db (volume persistente).
+// modules/db.js — banco SQLite do Quintal (better-sqlite3, síncrono).
+// Banco NOVO em data/quintal.db (o antigo aluguel.db fica intocado).
 
 const path = require('path');
 const fs = require('fs');
@@ -9,138 +9,180 @@ const { log } = require('./logger');
 const DB_DIR = process.env.DB_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
-const DB_PATH = path.join(DB_DIR, 'aluguel.db');
+const DB_PATH = path.join(DB_DIR, 'quintal.db');
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// ──────────────────────────────────────────────────────────────────
-// Schema
-// ──────────────────────────────────────────────────────────────────
+// ── Schema (idempotente) ─────────────────────────────────────────
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS casas (
-  id              INTEGER PRIMARY KEY,
-  numero          INTEGER UNIQUE NOT NULL,
-  inquilino       TEXT,
-  aluguel_padrao  REAL NOT NULL DEFAULT 0,
-  relogio_luz     INTEGER NOT NULL DEFAULT 1,
-  unidades_luz    REAL NOT NULL DEFAULT 1,
-  unidades_agua   REAL NOT NULL DEFAULT 1,
-  ativa           INTEGER NOT NULL DEFAULT 1,
-  observacoes     TEXT
+  id           INTEGER PRIMARY KEY,
+  numero       INTEGER UNIQUE NOT NULL,
+  inquilino    TEXT    NOT NULL DEFAULT '',
+  telefone     TEXT,
+  aluguel      REAL    NOT NULL DEFAULT 0,
+  moradores    INTEGER NOT NULL DEFAULT 1,
+  relogio      INTEGER NOT NULL DEFAULT 1,
+  peso_luz     REAL    NOT NULL DEFAULT 1,
+  ativa        INTEGER NOT NULL DEFAULT 1,
+  observacoes  TEXT,
+  criado_em    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS meses (
-  id                INTEGER PRIMARY KEY,
-  ano               INTEGER NOT NULL,
-  mes               INTEGER NOT NULL,
-  agua_total        REAL NOT NULL DEFAULT 0,
-  agua_divisor      REAL NOT NULL DEFAULT 10,
-  fechado           INTEGER NOT NULL DEFAULT 0,
-  criado_em         TEXT NOT NULL DEFAULT (datetime('now')),
+  id                  INTEGER PRIMARY KEY,
+  ano                 INTEGER NOT NULL,
+  mes                 INTEGER NOT NULL,
+  agua_total          REAL NOT NULL DEFAULT 0,
+  agua_vencimento     TEXT,
+  aluguel_vencimento  TEXT,
+  observacoes         TEXT,
+  fechado             INTEGER NOT NULL DEFAULT 0,
+  criado_em           TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(ano, mes)
 );
 
-CREATE TABLE IF NOT EXISTS contas_luz_relogio (
+CREATE TABLE IF NOT EXISTS contas_luz (
   id          INTEGER PRIMARY KEY,
   mes_id      INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
   relogio     INTEGER NOT NULL,
   valor_total REAL NOT NULL DEFAULT 0,
+  vencimento  TEXT,
   UNIQUE(mes_id, relogio)
 );
 
 CREATE TABLE IF NOT EXISTS lancamentos (
-  id                  INTEGER PRIMARY KEY,
-  mes_id              INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
-  casa_id             INTEGER NOT NULL REFERENCES casas(id),
-  inquilino           TEXT,
-  vazia               INTEGER NOT NULL DEFAULT 0,
-  agua_valor          REAL NOT NULL DEFAULT 0,
-  agua_pago           INTEGER NOT NULL DEFAULT 0,
-  luz_valor           REAL NOT NULL DEFAULT 0,
-  luz_pago            INTEGER NOT NULL DEFAULT 0,
-  outros_valor        REAL NOT NULL DEFAULT 0,
-  outros_descricao    TEXT,
-  outros_pago         INTEGER NOT NULL DEFAULT 0,
-  aluguel_valor       REAL NOT NULL DEFAULT 0,
-  aluguel_pago        INTEGER NOT NULL DEFAULT 0,
+  id                INTEGER PRIMARY KEY,
+  mes_id            INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
+  casa_id           INTEGER NOT NULL REFERENCES casas(id),
+  inquilino         TEXT,
+  vazia             INTEGER NOT NULL DEFAULT 0,
+  moradores         INTEGER NOT NULL DEFAULT 1,
+  agua_valor        REAL NOT NULL DEFAULT 0,
+  agua_pago         INTEGER NOT NULL DEFAULT 0,
+  agua_pago_em      TEXT,
+  luz_valor         REAL NOT NULL DEFAULT 0,
+  luz_pago          INTEGER NOT NULL DEFAULT 0,
+  luz_pago_em       TEXT,
+  outros_valor      REAL NOT NULL DEFAULT 0,
+  outros_descricao  TEXT,
+  outros_pago       INTEGER NOT NULL DEFAULT 0,
+  outros_pago_em    TEXT,
+  aluguel_valor     REAL NOT NULL DEFAULT 0,
+  aluguel_pago      INTEGER NOT NULL DEFAULT 0,
+  aluguel_pago_em   TEXT,
+  quitado_em        TEXT,
+  obs               TEXT,
   UNIQUE(mes_id, casa_id)
 );
 
+CREATE TABLE IF NOT EXISTS envios_wa (
+  id          INTEGER PRIMARY KEY,
+  mes_id      INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
+  casa_id     INTEGER NOT NULL REFERENCES casas(id),
+  enviado_em  TEXT NOT NULL,
+  modelo      TEXT NOT NULL DEFAULT 'cobranca',
+  UNIQUE(mes_id, casa_id, modelo)
+);
+
 CREATE TABLE IF NOT EXISTS descontos_pais (
-  id            INTEGER PRIMARY KEY,
-  mes_id        INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
-  destinatario  TEXT NOT NULL CHECK(destinatario IN ('pai', 'mae')),
-  descricao     TEXT NOT NULL,
-  valor         REAL NOT NULL DEFAULT 0
+  id           INTEGER PRIMARY KEY,
+  mes_id       INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
+  destinatario TEXT NOT NULL CHECK(destinatario IN ('pai','mae')),
+  descricao    TEXT NOT NULL,
+  valor        REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pagamentos_pais (
-  id              INTEGER PRIMARY KEY,
-  mes_id          INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
-  destinatario    TEXT NOT NULL CHECK(destinatario IN ('pai', 'mae')),
-  pago            INTEGER NOT NULL DEFAULT 0,
-  data_pagamento  TEXT,
+  id             INTEGER PRIMARY KEY,
+  mes_id         INTEGER NOT NULL REFERENCES meses(id) ON DELETE CASCADE,
+  destinatario   TEXT NOT NULL CHECK(destinatario IN ('pai','mae')),
+  pago           INTEGER NOT NULL DEFAULT 0,
+  data_pagamento TEXT,
   UNIQUE(mes_id, destinatario)
 );
 
-CREATE INDEX IF NOT EXISTS idx_lancamentos_mes ON lancamentos(mes_id);
-CREATE INDEX IF NOT EXISTS idx_descontos_mes   ON descontos_pais(mes_id);
+CREATE TABLE IF NOT EXISTS regras (
+  id        INTEGER PRIMARY KEY,
+  ordem     INTEGER NOT NULL DEFAULT 0,
+  categoria TEXT NOT NULL DEFAULT 'convivencia',
+  titulo    TEXT NOT NULL,
+  texto     TEXT NOT NULL,
+  ativa     INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_lanc_mes ON lancamentos(mes_id);
+CREATE INDEX IF NOT EXISTS idx_luz_mes  ON contas_luz(mes_id);
+CREATE INDEX IF NOT EXISTS idx_env_mes  ON envios_wa(mes_id);
 `);
 
-// ──────────────────────────────────────────────────────────────────
-// Migrations: ALTER TABLE idempotentes (rodam toda vez na boot, mas
-// só fazem mudança se a coluna ainda não existir).
-// ──────────────────────────────────────────────────────────────────
-function colunaExiste(tabela, coluna) {
-  const cols = db.prepare(`PRAGMA table_info(${tabela})`).all();
-  return cols.some(c => c.name === coluna);
-}
-function addCol(tabela, coluna, tipoEdefault) {
-  if (!colunaExiste(tabela, coluna)) {
-    db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipoEdefault}`);
-    log(`[DB-MIGRATE] ${tabela}.${coluna} adicionada`);
-  }
-}
+// ── Seed de casas (só se a tabela estiver vazia) ─────────────────
 
-// vencimento_agua e vencimento_luz: dia do mês (1-31) — null = não definido
-addCol('meses', 'vencimento_agua', 'INTEGER');
-addCol('meses', 'vencimento_luz',  'INTEGER');
-
-// pago_em: data ISO (YYYY-MM-DD) preenchida automaticamente quando o
-// lançamento da casa é totalmente quitado (água + luz + outros + aluguel).
-addCol('lancamentos', 'pago_em', 'TEXT');
-
-// observação livre de cobrança (ex: "ligar segunda")
-addCol('lancamentos', 'cobrar_obs', 'TEXT');
-
-// telefone do inquilino, pra montar link wa.me na hora de cobrar
-addCol('casas', 'telefone', 'TEXT');
-
-// ──────────────────────────────────────────────────────────────────
-// Seed: cria as 7 casas iniciais se a tabela estiver vazia.
-// ──────────────────────────────────────────────────────────────────
-const count = db.prepare('SELECT COUNT(*) AS n FROM casas').get().n;
-if (count === 0) {
-  const stmt = db.prepare(`
-    INSERT INTO casas (numero, inquilino, aluguel_padrao, relogio_luz, unidades_luz, unidades_agua)
-    VALUES (?, ?, ?, ?, ?, ?)
+const totalCasas = db.prepare('SELECT COUNT(*) AS n FROM casas').get().n;
+if (totalCasas === 0) {
+  const ins = db.prepare(`
+    INSERT INTO casas (numero, inquilino, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
+    VALUES (@numero, @inquilino, NULL, @aluguel, 1, @relogio, 1, 1, @observacoes)
   `);
-  const seed = [
-    [1, 'Vicente', 350,   2, 1, 1],
-    [2, '',         0,    2, 1, 1],
-    [3, 'Micaelly', 350,  2, 1, 1],
-    [4, 'Jair',     350,  3, 1, 1],
-    [5, 'Claudio',  500,  3, 1, 1],
-    [6, 'Erick',    700,  3, 1, 1],
-    [7, 'Erivan',   500,  3, 2, 2],
-  ];
-  const tx = db.transaction((rows) => rows.forEach(r => stmt.run(...r)));
-  tx(seed);
-  log(`[DB] Seed inicial: ${seed.length} casas criadas`);
+  const seed = db.transaction((casas) => { for (const c of casas) ins.run(c); });
+  seed([
+    { numero: 1, inquilino: 'Vicente',   aluguel: 350, relogio: 1, observacoes: null },
+    { numero: 2, inquilino: 'Marcelo',   aluguel: 400, relogio: 1, observacoes: null },
+    { numero: 3, inquilino: 'Micaely',   aluguel: 350, relogio: 1, observacoes: null },
+    { numero: 4, inquilino: '',          aluguel: 400, relogio: 2, observacoes: null },
+    { numero: 5, inquilino: 'Claudio',   aluguel: 500, relogio: 2, observacoes: null },
+    { numero: 6, inquilino: 'Cleberson', aluguel: 350, relogio: 2, observacoes: 'Estoque' },
+    { numero: 7, inquilino: 'Erivan',    aluguel: 500, relogio: 2, observacoes: null },
+  ]);
+  log('db: seed de casas aplicado (7 casas)');
 }
 
-log(`[DB] Banco pronto em ${DB_PATH}`);
+// ── Seed de regras (só se a tabela estiver vazia) ────────────────
+
+const totalRegras = db.prepare('SELECT COUNT(*) AS n FROM regras').get().n;
+if (totalRegras === 0) {
+  const ins = db.prepare(`
+    INSERT INTO regras (ordem, categoria, titulo, texto, ativa)
+    VALUES (@ordem, @categoria, @titulo, @texto, 1)
+  `);
+  const seed = db.transaction((regras) => { for (const r of regras) ins.run(r); });
+  seed([
+    { ordem: 1,  categoria: 'seguranca',   titulo: 'Silêncio das 22h às 7h',
+      texto: 'Som, TV e conversa em volume baixo depois das 22h. Domingo e feriado, silêncio a partir das 21h.' },
+    { ordem: 2,  categoria: 'convivencia', titulo: 'Festa só combinando antes',
+      texto: 'Reunião ou festa precisa ser avisada com pelo menos 2 dias de antecedência e encerrar até 23h.' },
+    { ordem: 3,  categoria: 'contas',      titulo: 'Água é dividida por pessoa',
+      texto: 'O valor da conta de água é rateado pelo número de moradores de cada casa. Quem tem mais gente na casa paga mais.' },
+    { ordem: 4,  categoria: 'contas',      titulo: 'Luz é dividida por relógio',
+      texto: 'São duas contas: um relógio atende as casas 1, 2 e 3 e o outro as casas 4, 5, 6 e 7. O valor é dividido entre as casas ocupadas daquele relógio.' },
+    { ordem: 5,  categoria: 'contas',      titulo: 'Pagar até a data combinada',
+      texto: 'O aluguel e as contas têm data de vencimento informada na mensagem do mês. Se for atrasar, avise antes — atraso sem aviso complica pra todo mundo.' },
+    { ordem: 6,  categoria: 'manutencao',  titulo: 'Avisar vazamento no mesmo dia',
+      texto: 'Torneira pingando, cano vazando, lâmpada da área comum queimada: avise no mesmo dia. Água e luz desperdiçadas entram na conta de todos.' },
+    { ordem: 7,  categoria: 'limpeza',     titulo: 'Cada um cuida da sua frente',
+      texto: 'Varrer e manter limpa a área na frente da sua casa é responsabilidade do morador.' },
+    { ordem: 8,  categoria: 'limpeza',     titulo: 'Lixo só em saco fechado',
+      texto: 'Nada de sacola solta no chão do quintal. Lixo sempre fechado e na lixeira, senão atrai rato, barata e bicho.' },
+    { ordem: 9,  categoria: 'convivencia', titulo: 'Área comum e varal são de todos',
+      texto: 'Use e libere. Não deixe roupa esquecida no varal por dias nem ocupe a área comum por tempo demais.' },
+    { ordem: 10, categoria: 'seguranca',   titulo: 'Passagem sempre livre',
+      texto: 'Não deixe móvel, entulho, bicicleta ou material de obra no corredor e na passagem do quintal.' },
+    { ordem: 11, categoria: 'animais',     titulo: 'Animal só com autorização',
+      texto: 'Cachorro e gato só com combinação prévia, sempre na coleira na área comum, e o dono recolhe as fezes na hora.' },
+    { ordem: 12, categoria: 'convivencia', titulo: 'Visita é responsabilidade do morador',
+      texto: 'Visitas são bem-vindas, mas quem responde por elas é o morador. Hóspede por mais de 7 dias precisa ser combinado.' },
+    { ordem: 13, categoria: 'seguranca',   titulo: 'Nada de gambiarra elétrica nem fogo',
+      texto: 'Proibido puxar energia de outra casa, fazer ligação improvisada ou acender fogueira/churrasqueira sem combinar antes.' },
+    { ordem: 14, categoria: 'veiculos',    titulo: 'Respeite as vagas',
+      texto: 'Estacione só na vaga combinada e nunca bloqueie a saída de outro morador ou o portão.' },
+    { ordem: 15, categoria: 'saida',       titulo: 'Saída avisada com 30 dias',
+      texto: 'Quem for desocupar a casa avisa com 30 dias de antecedência, entrega a casa limpa e com todas as contas quitadas.' },
+  ]);
+  log('db: seed de regras aplicado (15 regras)');
+}
+
+log(`db: quintal.db pronto em ${DB_PATH}`);
 
 module.exports = db;

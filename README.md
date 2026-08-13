@@ -1,226 +1,167 @@
-# Controle Casa de Aluguel
+# 🏡 Quintal — Controle das casas de aluguel
 
-Sistema web para controlar mensalmente as contas das suas casas de aluguel:
+Sistema web para controlar as 7 casas do quintal: lançar as contas do mês, ratear entre os
+inquilinos, marcar quem pagou o quê e gerar as mensagens de cobrança prontas para o WhatsApp —
+com preview e confirmação antes de qualquer envio.
 
-- **Lança a conta de água** (total + divisor) e o sistema rateia entre as casas
-- **Lança a conta de luz por relógio** e o sistema rateia entre as casas daquele relógio (peso configurável — Erivan paga em dobro, por exemplo)
-- **Marca quem pagou o quê** (água, luz, outros, aluguel)
-- **Gera recibos individuais** de cada inquilino, com mensagem pronta pra colar no WhatsApp
-- **Faz o split 50/50 entre o pai e a mãe** do aluguel recebido, com **descontos individuais** (ex.: seguro do carro, peças, boleto, adiantamentos)
-- **Acesso protegido por senha** — uma senha única, configurada via `.env`
+Versão 3.0 — reescrita completa (visual e lógica).
 
-A regra de cálculo foi validada contra os números reais da planilha original (testes em `scripts/test-calculo.js`).
+---
+
+## O que ele faz
+
+| Tela | Para quê |
+|---|---|
+| **Mês** (`/`) | Lança água, as duas contas de luz e os vencimentos. Mostra o rateio pronto e a marcação de pago item por item. |
+| **Casas** (`/casas`) | Cadastro: inquilino, telefone, aluguel, **moradores** (as cabeças que dividem a água), relógio de luz. |
+| **WhatsApp** (`/whatsapp`) | Gera a mensagem individual de cada inquilino, mostra o **preview**, exige **confirmação** e só então libera a fila de envio (copiar / abrir conversa). Tem campo de **teste**. |
+| **Histórico** (`/historico`) | Abas mês a mês, com o que foi cobrado, recebido e o que ficou em aberto, além da evolução por casa. |
+| **Repasse** (`/repasse`) | Split 50/50 do aluguel recebido entre pai e mãe, com descontos individuais. |
+| **Regras** (`/regras`) | As 15 regras de convivência do quintal — editáveis, prontas para imprimir ou mandar no grupo. |
+
+---
+
+## As regras de cálculo
+
+### Água — dividida por cabeça
+```
+valor_por_cabeca = agua_total / (soma dos moradores das casas OCUPADAS)
+casa.agua        = valor_por_cabeca × moradores da casa
+```
+Casa vaga não paga e não entra na divisão. Quem tem mais gente em casa paga mais.
+
+### Luz — duas contas, uma por relógio
+- **Relógio 1** → casas 1, 2 e 3
+- **Relógio 2** → casas 4, 5, 6 e 7
+
+```
+casa.luz = (valor_total_do_relogio / soma dos pesos das casas ocupadas naquele relógio) × peso da casa
+```
+`peso_luz` é 1 por padrão (divisão igual). Ajuste no cadastro se alguma casa consome mais.
+
+### Aluguel
+Vem do cadastro da casa quando o mês é criado e pode ser ajustado naquele mês específico.
+
+### Pagamento
+Cada casa tem 4 itens cobráveis — **água, luz, outros e aluguel** — e cada um é marcado
+separadamente, guardando a data em que foi pago. A casa só fica "quitada" quando todos os
+itens com valor estão pagos.
+
+### Vencimentos
+São datas completas: uma para a água, uma para **cada** conta de luz e uma para o aluguel.
+As telas mostram "vence em X dias", "vence hoje" ou "venceu há X dias", e a data entra
+automaticamente na mensagem do WhatsApp.
+
+### Repasse pai/mãe
+```
+bruto de cada um = 50% do aluguel efetivamente PAGO no mês
+líquido          = bruto − descontos daquele destinatário
+```
+
+O controle começa em **abril/2026**; meses anteriores não são listados.
+
+---
+
+## O envio de WhatsApp (fluxo)
+
+O sistema **não envia nada sozinho** — ele prepara e você envia:
+
+1. **Preview** — escolhe o mês e o modelo (cobrança, lembrete ou recibo) e vê todas as
+   mensagens, uma por inquilino, do jeito que vão sair. Dá para desmarcar quem não deve
+   receber e editar o texto de qualquer uma.
+2. **Confirmar** — o botão de confirmação mostra o resumo ("6 mensagens • R$ 2.100,50").
+   Antes de confirmar, nenhum botão de envio aparece.
+3. **Fila** — um item por inquilino, com "copiar texto" e "abrir WhatsApp". Cada um que você
+   aciona fica marcado como enviado, com barra de progresso.
+
+O **campo de teste** gera a mensagem para um número qualquer (com dados reais de uma casa ou
+com uma casa fictícia de exemplo) sem marcar ninguém como enviado.
 
 ---
 
 ## Stack
 
-- Node.js 20 + Express
-- SQLite (better-sqlite3) — banco em arquivo único, sem servidor extra
-- express-session com cookie HTTP-only para login
-- bcryptjs para hash da senha
-- Frontend vanilla (HTML + CSS + JS) — sem build step
+- Node.js 20 + Express 4
+- SQLite via better-sqlite3 (arquivo único em `data/quintal.db`, modo WAL)
+- Frontend vanilla — HTML + CSS + JS, sem build step e sem CDN
 - Docker + docker-compose
 
----
-
-## Domínio (planilha → banco)
-
-| Conceito da planilha | Tabela / coluna |
-|---|---|
-| Casas (1 a 7) | `casas` |
-| Inquilino atual de cada casa | `casas.inquilino` (snapshot mensal vai pra `lancamentos.inquilino`) |
-| Relógio de luz (2 ou 3, etc.) | `casas.relogio_luz` |
-| Casa que paga em dobro | `casas.unidades_luz` / `casas.unidades_agua` (= 2 para Erivan) |
-| Mês de referência | `meses` (uma linha por ano+mês) |
-| Total da conta de água | `meses.agua_total` (dividido por `meses.agua_divisor`, default 10) |
-| Total da conta de luz por relógio | `contas_luz_relogio` |
-| Linha de cobrança da casa naquele mês | `lancamentos` (1 por casa por mês) |
-| Pago / não pago | `lancamentos.*_pago` (água, luz, outros, aluguel) |
-| Descontos do pai/mãe | `descontos_pais` |
-| Pagamento do pai/mãe | `pagamentos_pais` |
-
----
-
-## Regras de cálculo
-
-### Água
-```
-valor_por_unidade = agua_total / agua_divisor
-casa.agua_valor   = valor_por_unidade × casa.unidades_agua
-```
-Casa **vazia** (sem inquilino no mês) → não paga água.
-
-### Luz (por relógio)
-Para cada relógio com valor > 0:
-```
-soma_unidades  = soma de unidades_luz das casas habitadas naquele relógio
-casa.luz_valor = (valor_relogio / soma_unidades) × casa.unidades_luz
-```
-Casa vazia naquele relógio **não entra na divisão e não paga**.
-
-### Pai / Mãe (50/50)
-```
-total_recebido  = soma de aluguel_valor das linhas com aluguel_pago = 1
-bruto_pai       = bruto_mae = total_recebido / 2
-liquido_pai     = bruto_pai - soma(descontos do pai no mês)
-liquido_mae     = bruto_mae - soma(descontos da mãe no mês)
-```
+### Segurança do acesso
+- Senha única (`APP_PASSWORD`, hash bcrypt em memória)
+- Cloudflare Turnstile no login (se `TURNSTILE_SECRET_KEY` estiver configurado)
+- Rate-limit: 8 falhas em 15 min bloqueiam o IP por 15 min
+- 2FA por e-mail: código de 6 dígitos válido por 5 min (se o SMTP estiver configurado)
+- Sessão em cookie HTTP-only, 30 dias, renovada a cada requisição
 
 ---
 
 ## Estrutura
 
 ```
-controle-casa-de-aluguel/
-├── index.js                # entry point Express + sessão
-├── package.json
-├── Dockerfile              # node:20-bookworm-slim + build deps do better-sqlite3
-├── docker-compose.yml      # network 'painel' externo (Caddy)
-├── .env.example            # copie para .env
-├── modules/
-│   ├── db.js               # schema SQLite + seed inicial das 7 casas
-│   ├── auth.js             # senha única bcrypt + middleware requireAuth
-│   ├── calculo.js          # regras de água/luz/split de pais
-│   ├── api.js              # rotas REST
-│   └── logger.js
-├── public/
-│   ├── login.html          # tela de senha
-│   ├── index.html          # mês atual: header, lançamentos, pais
-│   ├── casas.html          # CRUD das casas
-│   ├── recibos.html        # cards estilo planilha + texto WhatsApp
-│   ├── css/style.css       # tema dark
-│   └── js/                 # (vazio — JS está inline em cada HTML)
-├── scripts/
-│   └── test-calculo.js     # testes contra os números reais das prints
-└── data/                   # volume montado: aluguel.db (criado no 1º run)
+index.js              servidor, login/2FA, rotas das páginas
+modules/
+  db.js               schema, migrations e seeds (7 casas + 15 regras)
+  calculo.js          rateio de água e luz, pagamento, payload do mês
+  mensagens.js        textos de WhatsApp (cobrança, lembrete, recibo, regras)
+  api.js              rotas /api
+  auth.js             senha + middleware de sessão
+  logger.js           log com timestamp
+public/
+  css/app.css         design system (tokens + componentes)
+  js/core.js          window.App: fetch, formatação, modais, toasts, nav
+  *.html              uma página por tela
+data/
+  quintal.db          banco (volume persistente)
+  backup/             backup do banco antigo (v2, aluguel.db)
 ```
 
 ---
 
-## Deploy na VPS
+## Rodando
 
-### Pré-requisitos
-- Docker + Docker Compose
-- Caddy rodando em uma network Docker chamada `painel-hook_painel` (mesma do Hook bot). Se for diferente, ajuste em `docker-compose.yml`.
-- Domínio `aluguel.yourobot.com.br` apontando pra VPS.
-
-### 1) Clone o repositório
 ```bash
-git clone git@github.com:cleber-son/controle-casa-de-aluguel.git
-cd controle-casa-de-aluguel
+cp .env.example .env     # configure APP_PASSWORD e SESSION_SECRET
+./start.sh               # pull + build + up + health
 ```
 
-### 2) Configure o `.env`
+Outros modos:
 ```bash
-cp .env.example .env
+./start.sh restart        # stop + git pull + rebuild + start
+./start.sh restart-local  # stop + start rápido, sem pull nem rebuild
 ```
-Edite o `.env` e troque:
-- `APP_PASSWORD` — senha do site
-- `SESSION_SECRET` — gere com `openssl rand -hex 32`
-- `COOKIE_SECURE=true` — deixa true (Caddy serve HTTPS)
 
-### 3) Suba o container
+Sem Docker:
 ```bash
-docker compose up -d --build
+npm install
+npm start
 ```
 
-Acompanhe os logs:
-```bash
-docker compose logs -f
-```
-Você deve ver:
-```
-🏠 Controle Casa de Aluguel — ONLINE
-   http://0.0.0.0:3002
-[DB] Banco pronto em /app/data/aluguel.db
-[DB] Seed inicial: 7 casas criadas
-```
-
-### 4) Configure o Caddy
-Adicione no `Caddyfile` do seu Caddy:
-
-```caddy
-aluguel.yourobot.com.br {
-    reverse_proxy controle-casa-de-aluguel:3002
-}
-```
-
-Recarregue o Caddy:
-```bash
-docker exec <nome-do-caddy> caddy reload --config /etc/caddy/Caddyfile
-```
-
-### 5) Acesse
-Abra `https://aluguel.yourobot.com.br`, digite a senha e use.
+### Variáveis de ambiente
+| Variável | Para quê |
+|---|---|
+| `PORT` | porta interna do Express (padrão 3002) |
+| `APP_PASSWORD` | senha de acesso — **obrigatória** |
+| `SESSION_SECRET` | segredo do cookie (`openssl rand -hex 32`) |
+| `COOKIE_SECURE` | `true` quando servido por HTTPS |
+| `TZ` | `America/Sao_Paulo` |
+| `TURNSTILE_SECRET_KEY` | captcha do login (opcional) |
+| `SMTP_HOST` `SMTP_PORT` `SMTP_SECURE` `SMTP_USER` `SMTP_PASS` `SMTP_FROM` `ALERT_EMAIL_TO` | 2FA por e-mail (opcional) |
 
 ---
 
-## Uso (passo a passo)
+## Primeiro uso
 
-1. **Casas** (configuração inicial — uma vez): confira/ajuste as 7 casas do seed. Defina inquilino, aluguel padrão, relógio luz e unidades.
-2. **Mês atual**: escolha ano/mês. Da primeira vez ele cria os lançamentos automaticamente.
-3. Em **Contas do mês**, lance:
-   - Total da conta de água + divisor (geralmente 10)
-   - Total da conta de luz **de cada relógio**
-   - Clique **Salvar e recalcular**
-4. Em **Lançamentos por casa**: o sistema preencheu água e luz de cada casa. Edite valores manualmente se quiser, marque casas como vazias se ninguém estiver morando, lance "outros" gastos extras, ajuste valor de aluguel se diferente do padrão, marque o ✓ quando o inquilino pagar.
-5. **Recibos**: gera cards prontos pra imprimir ou copiar texto pro WhatsApp.
-6. **Repasse pai/mãe**: à medida que os aluguéis vão sendo marcados como pagos, o split 50/50 atualiza automaticamente. Adicione descontos de cada um e marque pago quando entregar o dinheiro.
+1. Entre em **Casas** e preencha os **telefones** (começam vazios — sem eles o WhatsApp não abre
+   a conversa) e o número de **moradores** de cada casa, que é o que divide a conta de água.
+2. Vá em **Mês**, lance o total da água, o total de cada relógio de luz e os vencimentos.
+   Clique em *Salvar e calcular*.
+3. Confira o rateio, vá em **WhatsApp**, veja o preview, confirme e dispare a fila.
+4. Conforme o pessoal for pagando, marque cada item na tela do mês.
 
 ---
 
-## Testes
+## Banco anterior
 
-Os testes validam que a lógica reproduz exatamente os números das suas planilhas:
-
-```bash
-docker compose exec controle-aluguel node scripts/test-calculo.js
-```
-
-Esperado: `✅ TODOS OS TESTES PASSARAM`
-
----
-
-## Backup
-
-O banco fica em `./data/aluguel.db`. Para backup periódico, basta copiar esse arquivo (use SQLite WAL — basta o arquivo `.db`, e os `.db-wal`/`.db-shm` se existirem):
-
-```bash
-# Backup local
-cp data/aluguel.db backups/aluguel-$(date +%F).db
-
-# Restore: para o container, substitui o arquivo, sobe de novo
-docker compose down
-cp backups/aluguel-2026-01-15.db data/aluguel.db
-docker compose up -d
-```
-
----
-
-## Atualizações
-
-Quando precisar atualizar o código:
-```bash
-git pull
-docker compose up -d --build
-```
-O banco e a sessão são preservados (estão no volume `./data`).
-
----
-
-## Troubleshooting
-
-**"Cannot find module 'better-sqlite3'"** — você está rodando fora do Docker. Use `docker compose up`. Fora do Docker, instale as build deps do node-gyp (`apt install build-essential python3`) e rode `npm install`.
-
-**Login sempre rejeita** — confira se `APP_PASSWORD` está no `.env`. Reinicie o container após editar.
-
-**Cookie não persiste em HTTPS** — defina `COOKIE_SECURE=true` no `.env`. Se estiver testando em HTTP local, deixe `false`.
-
-**Erro "network painel-hook_painel not found"** — ajuste o nome do network externo em `docker-compose.yml` (ou crie: `docker network create painel-hook_painel`).
-
----
-
-## Licença
-
-MIT — uso livre.
+A versão 2 usava `data/aluguel.db`. Esse arquivo continua no lugar, intocado, e há uma cópia
+consistente em `data/backup/`. A versão 3 usa um banco novo (`data/quintal.db`), com schema
+diferente — água por cabeça, vencimentos como data completa e pagamento por item.

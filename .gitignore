@@ -1,8 +1,10 @@
 node_modules/
 .env
+.env.bak*
 data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/backup/
 .DS_Store
 *.log

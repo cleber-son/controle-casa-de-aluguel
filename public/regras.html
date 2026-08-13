@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — Regras</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* --- específico da página de regras --- */
+    .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .page-head h1{margin:0;font-size:1.5rem;letter-spacing:.2px}
+
+    .grupo-head{display:flex;align-items:center;gap:9px;margin:20px 0 10px}
+    .grupo-icone{font-size:1.2rem;line-height:1}
+    .grupo-nome{font-weight:700;letter-spacing:.4px;text-transform:uppercase;font-size:.82rem;color:var(--txt-dim)}
+    .grupo-linha{flex:1;height:1px;background:var(--line)}
+
+    .regra{display:flex;gap:12px;align-items:flex-start}
+    .regra-num{flex:0 0 auto;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      font-weight:700;font-size:.9rem;background:var(--brand-soft);color:var(--brand);border:1px solid var(--line)}
+    .regra-corpo{flex:1;min-width:0}
+    .regra-titulo{font-weight:600;margin:0 0 4px;font-size:1rem}
+    .regra-texto{margin:0;color:var(--txt-dim);line-height:1.5;font-size:.92rem}
+    .regra-acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    .card.inativa{opacity:.45}
+    .card.inativa .regra-num{background:transparent;color:var(--txt-mute)}
+    .regra-card{margin-bottom:10px}
+
+    .setas{display:flex;flex-direction:column;gap:4px;flex:0 0 auto}
+
+    /* folha para o mural */
+    .folha{display:none}
+    @media print{
+      .no-print{display:none !important}
+      #tela{display:none !important}
+      .folha{display:block;color:#000}
+      .folha h1{font-size:22pt;margin:0 0 4px;text-align:center;letter-spacing:1px}
+      .folha .folha-sub{text-align:center;margin:0 0 4px;font-size:11pt}
+      .folha .folha-data{text-align:center;margin:0 0 18px;font-size:9pt}
+      .folha ol{margin:0;padding:0 0 0 6px;list-style:none;counter-reset:r}
+      .folha li{counter-increment:r;margin:0 0 12px;padding:0 0 10px 34px;position:relative;border-bottom:1px solid #ddd;break-inside:avoid}
+      .folha li:before{content:counter(r) ".";position:absolute;left:0;top:0;font-weight:700;font-size:12pt}
+      .folha li b{display:block;font-size:12pt;margin-bottom:2px}
+      .folha li span{font-size:10.5pt;line-height:1.4}
+      .folha .assin{margin-top:26px;font-size:10pt}
+      .folha .assin .linha{margin-top:34px;border-top:1px solid #000;width:64%}
+    }
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div id="tela">
+      <div class="page-head no-print">
+        <div>
+          <h1>Regras do quintal</h1>
+          <p class="muted small" style="margin:4px 0 0;max-width:60ch">
+            Estas são as combinações da casa — o que a gente combinou pra todo mundo viver bem aqui.
+            Nada aqui é surpresa: qualquer dúvida ou situação diferente, é só conversar.
+          </p>
+        </div>
+        <div class="spacer" style="flex:1"></div>
+        <div class="header-actions wrap">
+          <button class="btn btn-outline btn-sm" type="button" id="btn-agrupar">📂 Ver em ordem</button>
+          <button class="btn btn-outline btn-sm" type="button" id="btn-print">🖨️ Imprimir</button>
+          <button class="btn btn-wa btn-sm" type="button" id="btn-copiar">📋 Copiar para o WhatsApp</button>
+          <button class="btn btn-primary btn-sm" type="button" id="btn-nova">+ Nova regra</button>
+        </div>
+      </div>
+
+      <div id="resumo"></div>
+      <div id="lista"><div class="skeleton" style="height:110px;margin-bottom:10px"></div><div class="skeleton" style="height:110px;margin-bottom:10px"></div><div class="skeleton" style="height:110px"></div></div>
+    </div>
+
+    <div class="folha" id="folha"></div>
+  </main>
+
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    App.mount('regras');
+
+    var E = App.escapeHtml;
+
+    var CATEGORIAS = [
+      { id: 'convivencia', nome: 'Convivência', icone: '🤝' },
+      { id: 'contas',      nome: 'Contas',      icone: '💰' },
+      { id: 'limpeza',     nome: 'Limpeza',     icone: '🧹' },
+      { id: 'seguranca',   nome: 'Segurança',   icone: '🔒' },
+      { id: 'animais',     nome: 'Animais',     icone: '🐾' },
+      { id: 'veiculos',    nome: 'Veículos',    icone: '🚗' },
+      { id: 'manutencao',  nome: 'Manutenção',  icone: '🔧' },
+      { id: 'saida',       nome: 'Saída',       icone: '🚪' }
+    ];
+    function cat(id) {
+      var c = CATEGORIAS.filter(function (x) { return x.id === id; })[0];
+      return c || { id: id || 'outros', nome: (id || 'Outros'), icone: '📌' };
+    }
+
+    var S = { regras: [], agrupar: true, salvando: false };
+
+    var elLista  = document.getElementById('lista');
+    var elResumo = document.getElementById('resumo');
+    var elFolha  = document.getElementById('folha');
+
+    /* ---------------- carga ---------------- */
+    function carregar() {
+      return App.api('/regras').then(function (d) {
+        S.regras = ((d && d.regras) || []).slice().sort(function (a, b) {
+          return (a.ordem - b.ordem) || (a.id - b.id);
+        });
+        render();
+      }).catch(function (e) {
+        elLista.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
+          '<div class="empty-icon">⚠️</div><p>Não foi possível carregar as regras.</p>' +
+          '<p class="muted small">' + E(e && e.message ? e.message : '') + '</p>' +
+          '<button class="btn btn-outline" type="button" id="btn-retry">Tentar de novo</button></div></div></div>';
+        var r = document.getElementById('btn-retry');
+        if (r) r.addEventListener('click', carregar);
+      });
+    }
+
+    /* ---------------- render ---------------- */
+    function render() {
+      renderResumo();
+      renderLista();
+      renderFolha();
+      document.getElementById('btn-agrupar').textContent = S.agrupar ? '📂 Ver em ordem' : '🗂️ Agrupar por categoria';
+    }
+
+    function renderResumo() {
+      var total = S.regras.length;
+      var ativas = S.regras.filter(function (r) { return !!r.ativa; }).length;
+      elResumo.innerHTML = '<div class="card card-accent-brand" style="margin-bottom:6px"><div class="card-body">' +
+        '<div class="stat-row grid grid-3">' +
+        '<div class="stat"><div class="stat-label">Regras ativas</div><div class="stat-value">' + ativas + '</div>' +
+          '<div class="stat-hint">vão para o mural e para o WhatsApp</div></div>' +
+        '<div class="stat"><div class="stat-label">Desativadas</div><div class="stat-value">' + (total - ativas) + '</div>' +
+          '<div class="stat-hint">ficam guardadas, mas não aparecem</div></div>' +
+        '<div class="stat"><div class="stat-label">Responsável</div><div class="stat-value">Cleberson</div>' +
+          '<div class="stat-hint">qualquer dúvida, é só chamar</div></div>' +
+        '</div></div></div>';
+    }
+
+    function numeroAtivas() {
+      var n = 0, mapa = {};
+      S.regras.forEach(function (r) { if (r.ativa) { n++; mapa[r.id] = n; } });
+      return mapa;
+    }
+
+    function renderLista() {
+      if (!S.regras.length) {
+        elLista.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
+          '<div class="empty-icon">📋</div><p class="strong">Nenhuma regra cadastrada</p>' +
+          '<p class="muted small">Crie a primeira combinação da casa.</p>' +
+          '<button class="btn btn-primary" type="button" id="btn-vazio">+ Nova regra</button></div></div></div>';
+        var b = document.getElementById('btn-vazio');
+        if (b) b.addEventListener('click', function () { abrirForm(null); });
+        return;
+      }
+
+      var mapa = numeroAtivas();
+      var html = '';
+
+      if (S.agrupar) {
+        var vistos = [];
+        S.regras.forEach(function (r) { if (vistos.indexOf(r.categoria) < 0) vistos.push(r.categoria); });
+        // categorias na ordem canônica primeiro, depois as desconhecidas
+        var ordemCats = CATEGORIAS.map(function (c) { return c.id; })
+          .filter(function (id) { return vistos.indexOf(id) >= 0; })
+          .concat(vistos.filter(function (id) { return CATEGORIAS.map(function (c) { return c.id; }).indexOf(id) < 0; }));
+        ordemCats.forEach(function (id) {
+          var c = cat(id);
+          var doGrupo = S.regras.filter(function (r) { return r.categoria === id; });
+          html += '<div class="grupo-head"><span class="grupo-icone" aria-hidden="true">' + c.icone + '</span>' +
+            '<span class="grupo-nome">' + E(c.nome) + '</span><span class="badge badge-dim">' + doGrupo.length + '</span>' +
+            '<span class="grupo-linha"></span></div>';
+          doGrupo.forEach(function (r) { html += cardRegra(r, mapa[r.id]); });
+        });
+      } else {
+        S.regras.forEach(function (r) { html += cardRegra(r, mapa[r.id]); });
+      }
+
+      elLista.innerHTML = html;
+    }
+
+    function cardRegra(r, num) {
+      var c = cat(r.categoria);
+      var idx = S.regras.map(function (x) { return x.id; }).indexOf(r.id);
+      var vizinhos = vizinhosDe(r);
+      return '<div class="card regra-card' + (r.ativa ? '' : ' inativa') + '" data-id="' + r.id + '"><div class="card-body">' +
+        '<div class="regra">' +
+          '<div class="regra-num" aria-hidden="true">' + (r.ativa ? (num || (idx + 1)) : '•') + '</div>' +
+          '<div class="regra-corpo">' +
+            '<p class="regra-titulo">' + E(r.titulo) + ' ' +
+              '<span class="badge badge-dim small">' + c.icone + ' ' + E(c.nome) + '</span>' +
+              (r.ativa ? '' : ' <span class="badge badge-warn small">inativa</span>') +
+            '</p>' +
+            '<p class="regra-texto">' + E(r.texto) + '</p>' +
+            '<div class="regra-acoes no-print">' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-acao="editar" data-id="' + r.id + '">✏️ Editar</button>' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-acao="ativa" data-id="' + r.id + '">' +
+                (r.ativa ? '🚫 Desativar' : '✅ Ativar') + '</button>' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-acao="remover" data-id="' + r.id + '">🗑️ Remover</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="setas no-print">' +
+            '<button class="btn btn-icon btn-sm" type="button" data-acao="subir" data-id="' + r.id + '"' +
+              (vizinhos.antes == null ? ' disabled' : '') + ' aria-label="Mover a regra para cima">↑</button>' +
+            '<button class="btn btn-icon btn-sm" type="button" data-acao="descer" data-id="' + r.id + '"' +
+              (vizinhos.depois == null ? ' disabled' : '') + ' aria-label="Mover a regra para baixo">↓</button>' +
+          '</div>' +
+        '</div>' +
+      '</div></div>';
+    }
+
+    // no modo agrupado as setas trocam com a regra vizinha da MESMA categoria;
+    // no modo lista, com a vizinha imediata. Em ambos os casos o backend recebe a lista completa de ids.
+    function vizinhosDe(r) {
+      var lista = S.agrupar ? S.regras.filter(function (x) { return x.categoria === r.categoria; }) : S.regras;
+      var i = lista.map(function (x) { return x.id; }).indexOf(r.id);
+      return { antes: i > 0 ? lista[i - 1].id : null, depois: (i >= 0 && i < lista.length - 1) ? lista[i + 1].id : null };
+    }
+
+    /* ---------------- ações ---------------- */
+    document.addEventListener('click', function (ev) {
+      var el = ev.target.closest && ev.target.closest('[data-acao]');
+      if (!el) return;
+      var id = Number(el.getAttribute('data-id'));
+      var regra = S.regras.filter(function (r) { return r.id === id; })[0];
+      if (!regra) return;
+      var acao = el.getAttribute('data-acao');
+      if (acao === 'editar') abrirForm(regra);
+      else if (acao === 'ativa') alternarAtiva(regra);
+      else if (acao === 'remover') remover(regra);
+      else if (acao === 'subir' || acao === 'descer') mover(regra, acao);
+    });
+
+    function alternarAtiva(r) {
+      App.api('/regras/' + r.id, { method: 'PUT', body: { ativa: r.ativa ? 0 : 1 } })
+        .then(function () {
+          App.toast(r.ativa ? 'Regra desativada.' : 'Regra ativada.', 'ok');
+          return carregar();
+        }).catch(function () {});
+    }
+
+    function remover(r) {
+      App.confirmar({
+        titulo: 'Remover regra',
+        texto: 'Apagar "' + r.titulo + '"? Se for só para tirar do mural por enquanto, prefira desativar.',
+        ok: 'Remover', cancelar: 'Cancelar', perigo: true
+      }).then(function (sim) {
+        if (!sim) return;
+        return App.api('/regras/' + r.id, { method: 'DELETE' }).then(function () {
+          App.toast('Regra removida.', 'ok');
+          return carregar();
+        });
+      }).catch(function () {});
+    }
+
+    function mover(r, acao) {
+      var v = vizinhosDe(r);
+      var alvo = acao === 'subir' ? v.antes : v.depois;
+      if (alvo == null || S.salvando) return;
+      var ids = S.regras.map(function (x) { return x.id; });
+      var i = ids.indexOf(r.id), j = ids.indexOf(alvo);
+      if (i < 0 || j < 0) return;
+      ids[i] = alvo; ids[j] = r.id;
+      // reordena localmente já, pra resposta imediata
+      var porId = {};
+      S.regras.forEach(function (x) { porId[x.id] = x; });
+      S.regras = ids.map(function (x) { return porId[x]; });
+      render();
+      S.salvando = true;
+      App.api('/regras/reordenar', { method: 'POST', body: { ids: ids } })
+        .then(function () { S.salvando = false; })
+        .catch(function () { S.salvando = false; carregar(); });
+    }
+
+    /* ---------------- formulário (modal) ---------------- */
+    function abrirForm(r) {
+      var novo = !r;
+      var opcoes = CATEGORIAS.map(function (c) {
+        return '<option value="' + c.id + '"' + (!novo && r.categoria === c.id ? ' selected' : '') + '>' +
+          c.icone + ' ' + E(c.nome) + '</option>';
+      }).join('');
+
+      var html =
+        '<div class="stack form-grid">' +
+          '<div class="field"><label class="field-label" for="f-titulo">Título</label>' +
+            '<input class="input" id="f-titulo" type="text" maxlength="80" placeholder="Ex.: Silêncio das 22h às 7h" value="' +
+              (novo ? '' : E(r.titulo)) + '"></div>' +
+          '<div class="field"><label class="field-label" for="f-categoria">Categoria</label>' +
+            '<select class="select" id="f-categoria">' + opcoes + '</select></div>' +
+          '<div class="field"><label class="field-label" for="f-texto">Texto da regra</label>' +
+            '<textarea class="textarea" id="f-texto" rows="4" placeholder="Explique a combinação de forma curta e direta.">' +
+              (novo ? '' : E(r.texto)) + '</textarea>' +
+            '<div class="field-hint">Tom respeitoso: é uma combinação, não um aviso de despejo.</div></div>' +
+        '</div>';
+
+      var foot = '<button class="btn btn-ghost" type="button" data-fechar>Cancelar</button>' +
+                 '<button class="btn btn-primary" type="button" id="f-salvar">' + (novo ? 'Criar regra' : 'Salvar') + '</button>';
+
+      var m = App.modal({ titulo: novo ? 'Nova regra' : 'Editar regra', html: html, foot: foot });
+      var raiz = (m && m.el) || document;
+      // o rodapé pode ser montado fora do elemento devolvido — cai para o documento se preciso
+      function q(sel) { return raiz.querySelector(sel) || document.querySelector(sel); }
+      function fechar() { if (m && m.fechar) m.fechar(); }
+
+      var btnCancelar = q('[data-fechar]');
+      if (btnCancelar) btnCancelar.addEventListener('click', fechar);
+
+      var input = q('#f-titulo');
+      if (input) input.focus();
+
+      var btnSalvar = q('#f-salvar');
+      if (!btnSalvar) { App.toast('Não foi possível abrir o formulário.', 'err'); return; }
+      btnSalvar.addEventListener('click', function () {
+        var titulo = ((q('#f-titulo') || {}).value || '').trim();
+        var texto = ((q('#f-texto') || {}).value || '').trim();
+        var categoria = ((q('#f-categoria') || {}).value) || 'convivencia';
+        if (!titulo) { App.toast('Dê um título para a regra.', 'err'); return; }
+        if (!texto) { App.toast('Escreva o texto da regra.', 'err'); return; }
+        var req = novo
+          ? App.api('/regras', { method: 'POST', body: { titulo: titulo, texto: texto, categoria: categoria } })
+          : App.api('/regras/' + r.id, { method: 'PUT', body: { titulo: titulo, texto: texto, categoria: categoria } });
+        req.then(function () {
+          fechar();
+          App.toast(novo ? 'Regra criada.' : 'Regra salva.', 'ok');
+          return carregar();
+        }).catch(function () {});
+      });
+    }
+
+    /* ---------------- folha de impressão ---------------- */
+    function renderFolha() {
+      var ativas = S.regras.filter(function (r) { return !!r.ativa; });
+      var itens = ativas.map(function (r) {
+        return '<li><b>' + E(r.titulo) + '</b><span>' + E(r.texto) + '</span></li>';
+      }).join('');
+      elFolha.innerHTML =
+        '<h1>REGRAS DO QUINTAL</h1>' +
+        '<p class="folha-sub">Combinações da casa — para todo mundo viver bem aqui.</p>' +
+        '<p class="folha-data">Atualizado em ' + E(App.dataBR(App.hoje())) + '</p>' +
+        '<ol>' + (itens || '<li><b>Sem regras ativas</b><span>Cadastre as combinações na tela de Regras.</span></li>') + '</ol>' +
+        '<div class="assin">' +
+          '<p>Qualquer dúvida ou situação diferente, procure o responsável — dá para combinar.</p>' +
+          '<div class="linha"></div>' +
+          '<p>Cleberson — responsável pelo quintal</p>' +
+        '</div>';
+    }
+
+    /* ---------------- botões do topo ---------------- */
+    document.getElementById('btn-print').addEventListener('click', function () { window.print(); });
+
+    document.getElementById('btn-agrupar').addEventListener('click', function () {
+      S.agrupar = !S.agrupar;
+      render();
+    });
+
+    document.getElementById('btn-nova').addEventListener('click', function () { abrirForm(null); });
+
+    document.getElementById('btn-copiar').addEventListener('click', function () {
+      var btn = this;
+      btn.setAttribute('disabled', 'disabled');
+      App.api('/regras/texto').then(function (d) {
+        btn.removeAttribute('disabled');
+        if (!d || !d.texto) { App.toast('Não veio texto para copiar.', 'err'); return; }
+        App.copiar(d.texto);
+      }).catch(function () { btn.removeAttribute('disabled'); });
+    });
+
+    carregar();
+  })();
+  </script>
+</body>
+</html>

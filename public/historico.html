@@ -1,202 +1,490 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<title>Histórico — Controle de Aluguel</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/css/style.css">
-<script src="/js/mes-ref.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — Histórico</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* --- específico da página de histórico --- */
+    .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .page-head h1{margin:0;font-size:1.5rem;letter-spacing:.2px}
+
+    /* aba de mês: rótulo + bolinha de status */
+    .tab .tab-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:7px;vertical-align:middle}
+    .tab-dot.ok{background:var(--ok)}
+    .tab-dot.aberto{background:var(--warn)}
+    .tab.is-casa{border-style:dashed}
+
+    /* variação vs mês anterior */
+    .delta{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+    .delta-val{font-weight:700;font-size:1.05rem}
+    .delta-up{color:var(--err)}
+    .delta-down{color:var(--ok)}
+    .delta-flat{color:var(--txt-dim)}
+    .delta-pct{font-size:.85rem;opacity:.85}
+
+    /* gráfico de barras — só CSS */
+    .chart{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+    .bar-row{display:grid;grid-template-columns:74px 1fr 104px;align-items:center;gap:10px}
+    .bar-lbl{font-size:.78rem;color:var(--txt-dim);white-space:nowrap}
+    .bar-track{position:relative;display:flex;height:22px;border-radius:999px;overflow:hidden;background:var(--card-2);border:1px solid var(--line)}
+    .bar-seg{height:100%;display:block;min-width:0}
+    .seg-agua{background:var(--agua)}
+    .seg-luz{background:var(--luz)}
+    .seg-outros{background:var(--outros)}
+    .seg-aluguel{background:var(--aluguel)}
+    .bar-val{text-align:right;font-size:.85rem;white-space:nowrap}
+    .legenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:.8rem;color:var(--txt-dim)}
+    .legenda span{display:inline-flex;align-items:center;gap:6px}
+    .chip{width:11px;height:11px;border-radius:3px;display:inline-block}
+
+    .item-pago{display:block;font-size:.72rem;color:var(--txt-mute);margin-top:2px}
+    .contas-linha{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
+    .contas-linha:last-child{border-bottom:0}
+
+    .print-only{display:none}
+    @media (max-width:720px){
+      .bar-row{grid-template-columns:64px 1fr;grid-template-areas:"lbl val" "bar bar";row-gap:4px}
+      .bar-lbl{grid-area:lbl}.bar-val{grid-area:val}.bar-track{grid-area:bar}
+    }
+    @media print{
+      .no-print{display:none !important}
+      .print-only{display:block;margin-bottom:14px}
+      .print-only h2{margin:0 0 2px;font-size:18pt}
+      .chart .bar-track{border:1px solid #999}
+      .bar-seg{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style>
 </head>
 <body>
+  <div id="app-header"></div>
 
-<header>
-  <h1>🏠 Controle de Aluguel</h1>
-  <nav>
-    <a href="/">📅 Mês atual</a>
-    <a href="/recibos">📄 Recibos</a>
-    <a href="/devedores">⚠️ Devedores</a>
-    <a href="/historico" class="active">📊 Histórico</a>
-    <a href="/casas">🏘️ Casas</a>
-  </nav>
-  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
-  <form method="POST" action="/logout" style="margin:0">
-    <button type="submit" class="logout-btn">Sair</button>
-  </form>
-</header>
+  <main class="container" id="app">
+    <div class="print-only" id="print-head"></div>
 
-<main>
-
-  <div class="card">
-    <h2>📊 Histórico de lançamentos</h2>
-    <div class="field-inline">
-      <div class="field" style="flex:0 0 140px">
-        <label>Ano</label>
-        <select id="f-ano"></select>
+    <div class="page-head no-print">
+      <div>
+        <h1>Histórico</h1>
+        <p class="muted small" style="margin:4px 0 0">Cada mês em uma aba — o que foi cobrado, o que entrou e o que ficou em aberto.</p>
       </div>
-      <div class="field" style="flex:0 0 200px">
-        <label>Casa</label>
-        <select id="f-casa">
-          <option value="">Todas</option>
-        </select>
-      </div>
-      <div class="field" style="flex:0 0 160px">
-        <label>Status</label>
-        <select id="f-status">
-          <option value="todos">Todos</option>
-          <option value="pagos">Pagos</option>
-          <option value="devendo">Devendo</option>
-        </select>
+      <div class="spacer" style="flex:1"></div>
+      <div class="header-actions">
+        <button class="btn btn-outline" id="btn-print" type="button">🖨️ Imprimir</button>
       </div>
     </div>
-  </div>
 
-  <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));margin-bottom:16px">
-    <div class="stat stat-pago">
-      <div class="label">💰 Total recebido</div>
-      <div class="value" id="s-recebido" style="color:var(--accent)">—</div>
-    </div>
-    <div class="stat stat-devendo">
-      <div class="label">⏳ Em aberto</div>
-      <div class="value" id="s-aberto" style="color:var(--err)">—</div>
-    </div>
-    <div class="stat">
-      <div class="label">📋 Lançamentos</div>
-      <div class="value" id="s-qtd" style="color:var(--info)">—</div>
-    </div>
-  </div>
+    <div id="resumo-geral"></div>
+    <div id="tabs-wrap" class="no-print"></div>
+    <div id="painel"><div class="skeleton" style="height:220px"></div></div>
+  </main>
 
-  <div class="card">
-    <h2>Lançamentos</h2>
-    <div style="overflow-x:auto">
-      <table class="tbl-historico" id="tbl-historico">
-        <thead>
-          <tr>
-            <th>Ref</th>
-            <th>Casa</th>
-            <th>Inquilino</th>
-            <th class="col-agua" style="text-align:right">💧 Água</th>
-            <th class="col-luz" style="text-align:right">💡 Luz</th>
-            <th class="col-outros" style="text-align:right">📦 Outros</th>
-            <th class="col-aluguel" style="text-align:right">🏠 Aluguel</th>
-            <th class="col-total" style="text-align:right">💰 Total</th>
-            <th>Status</th>
-            <th>Pago em</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-historico"></tbody>
-      </table>
-    </div>
-    <p id="msg-vazio" style="color:var(--muted);font-size:13px;margin-top:10px;display:none">
-      Nenhum resultado pros filtros aplicados.
-    </p>
-  </div>
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    App.mount('historico');
 
-</main>
+    var E = App.escapeHtml;
+    var S = { hist: null, casas: [], aba: null, cacheMes: {}, cacheCasa: {}, casaSel: null };
 
-<script>
-function brl(n) {
-  return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-function formatDataBR(iso) {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
-async function api(method, url) {
-  const r = await fetch(url, { method });
-  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
-  return r.json();
-}
+    var elResumo = document.getElementById('resumo-geral');
+    var elTabs   = document.getElementById('tabs-wrap');
+    var elPainel = document.getElementById('painel');
+    var elPrint  = document.getElementById('print-head');
 
-document.addEventListener('DOMContentLoaded', () => {
-  const r = getMesRef();
-  const t = document.getElementById('tag-mes-ativo-txt');
-  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
-});
+    function zero(n) { return Math.abs(Number(n) || 0) < 0.005; }
+    function chaveMes(a, m) { return a + '-' + String(m).padStart(2, '0'); }
+    function labelCurto(a, m) { return App.MESES[m - 1].slice(0, 3) + '/' + String(a).slice(2); }
+    function erroBox(msg) {
+      return '<div class="empty"><div class="empty-icon">⚠️</div><p>' + E(msg) + '</p></div>';
+    }
 
-// Popula filtros: Ano (Todos + 2026..hoje.ano+1), Casa (Todas + casas ativas)
-const fAno = document.getElementById('f-ano');
-const fCasa = document.getElementById('f-casa');
-const fStatus = document.getElementById('f-status');
+    /* ---------------- carga inicial ---------------- */
+    function iniciar() {
+      elPainel.innerHTML = '<div class="skeleton" style="height:220px"></div>';
+      App.api('/historico').then(function (d) {
+        S.hist = d;
+        var meses = (d && d.meses) || [];
+        renderResumoGeral(d);
+        renderTabs();
+        if (!meses.length) {
+          elPainel.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
+            '<div class="empty-icon">🗓️</div><p class="strong">Nenhum mês lançado ainda</p>' +
+            '<p class="muted small">Assim que você lançar as contas de um mês na tela Mês, ele aparece aqui.</p>' +
+            '<p><a class="btn btn-primary" href="/">Ir para o mês</a></p></div></div></div>';
+          return;
+        }
+        // pré-seleciona o mês em uso no app, se ele existir no histórico
+        var atual = App.mesAtual();
+        var alvo = meses.filter(function (m) { return m.ano === atual.ano && m.mes === atual.mes; })[0] || meses[0];
+        selecionar('mes:' + chaveMes(alvo.ano, alvo.mes));
+      }).catch(function (e) {
+        elPainel.innerHTML = erroBox('Não foi possível carregar o histórico. ' + (e && e.message ? e.message : ''));
+      });
+    }
 
-(function preencherAno() {
-  const hoje = new Date();
-  const max = hoje.getFullYear() + 1;
-  fAno.innerHTML = '<option value="">Todos</option>';
-  for (let a = 2026; a <= max; a++) {
-    const o = document.createElement('option');
-    o.value = a;
-    o.textContent = a;
-    fAno.appendChild(o);
-  }
-})();
+    /* ---------------- resumo geral ---------------- */
+    function renderResumoGeral(d) {
+      var t = (d && d.totais) || { total_cobrado: 0, total_recebido: 0, total_aberto: 0 };
+      var qtd = ((d && d.meses) || []).length;
+      elResumo.innerHTML =
+        '<div class="card card-accent-brand" style="margin-bottom:14px">' +
+          '<div class="card-body">' +
+            '<div class="stat-row grid grid-4">' +
+              stat('Meses no histórico', qtd, 'desde ' + App.MESES[App.INICIO.mes - 1] + '/' + App.INICIO.ano) +
+              stat('Cobrado no total', App.money(t.total_cobrado), '') +
+              stat('Recebido', '<span class="money-paid">' + App.money(t.total_recebido) + '</span>', '') +
+              stat('Em aberto', '<span class="' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.total_aberto) + '</span>', '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
 
-async function preencherCasas() {
-  const casas = await api('GET', '/api/casas');
-  fCasa.innerHTML = '<option value="">Todas</option>';
-  casas.sort((a, b) => a.numero - b.numero).forEach(c => {
-    const o = document.createElement('option');
-    o.value = c.numero;
-    o.textContent = `${String(c.numero).padStart(2, '0')} — ${c.inquilino || '(vazia)'}`;
-    fCasa.appendChild(o);
-  });
-}
+    function stat(label, valor, hint) {
+      return '<div class="stat"><div class="stat-label">' + E(label) + '</div>' +
+        '<div class="stat-value">' + valor + '</div>' +
+        (hint ? '<div class="stat-hint">' + E(hint) + '</div>' : '') + '</div>';
+    }
 
-[fAno, fCasa, fStatus].forEach(el => el.addEventListener('change', carregar));
+    /* ---------------- abas ---------------- */
+    function renderTabs() {
+      var meses = (S.hist && S.hist.meses) || [];
+      var html = '<div class="tabs-scroll"><div class="tabs" role="tablist">';
+      meses.forEach(function (m) {
+        var id = 'mes:' + chaveMes(m.ano, m.mes);
+        var pago = zero(m.total_aberto);
+        html += '<button type="button" class="tab' + (S.aba === id ? ' is-active' : '') + '" role="tab"' +
+          ' aria-selected="' + (S.aba === id ? 'true' : 'false') + '"' +
+          ' data-aba="' + id + '" title="' + E(m.label) + (pago ? ' — tudo pago' : ' — em aberto') + '">' +
+          E(labelCurto(m.ano, m.mes)) +
+          '<span class="tab-dot ' + (pago ? 'ok' : 'aberto') + '" aria-hidden="true"></span></button>';
+      });
+      html += '<button type="button" class="tab is-casa' + (S.aba === 'casa' ? ' is-active' : '') + '" role="tab"' +
+        ' aria-selected="' + (S.aba === 'casa' ? 'true' : 'false') + '" data-aba="casa">🏠 Por casa</button>';
+      html += '</div></div>';
+      elTabs.innerHTML = html;
+    }
 
-async function carregar() {
-  const params = new URLSearchParams();
-  if (fAno.value)    params.set('ano', fAno.value);
-  if (fCasa.value)   params.set('casa', fCasa.value);
-  if (fStatus.value) params.set('status', fStatus.value);
+    // delegação simples e independente da assinatura do App.on
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest && e.target.closest('.tab[data-aba]');
+      if (!el) return;
+      selecionar(el.getAttribute('data-aba'));
+    });
 
-  const data = await api('GET', '/api/historico?' + params.toString());
+    function selecionar(aba) {
+      S.aba = aba;
+      renderTabs();
+      var ativa = elTabs.querySelector('.tab.is-active');
+      if (ativa && ativa.scrollIntoView) ativa.scrollIntoView({ block: 'nearest', inline: 'center' });
+      if (aba === 'casa') { renderPorCasa(); return; }
+      var p = aba.split(':')[1].split('-');
+      var ano = Number(p[0]), mes = Number(p[1]);
+      App.setMes(ano, mes);
+      abrirMes(ano, mes);
+    }
 
-  document.getElementById('s-recebido').textContent = brl(data.totais.recebido);
-  document.getElementById('s-aberto').textContent   = brl(data.totais.em_aberto);
-  document.getElementById('s-qtd').textContent      = data.totais.qtd_lancamentos;
+    /* ---------------- painel de um mês ---------------- */
+    function abrirMes(ano, mes) {
+      var k = chaveMes(ano, mes);
+      elPrint.innerHTML = '<h2>Quintal — ' + E(App.mesLabel(ano, mes)) + '</h2>' +
+        '<p class="small">Prestação de contas do mês · impresso em ' + E(App.dataBR(App.hoje())) + '</p>';
+      if (S.cacheMes[k]) { renderMes(S.cacheMes[k], ano, mes); return; }
+      elPainel.innerHTML = '<div class="skeleton" style="height:180px;margin-bottom:12px"></div>' +
+                           '<div class="skeleton" style="height:260px"></div>';
+      App.api('/mes/' + ano + '/' + mes).then(function (d) {
+        S.cacheMes[k] = d;
+        if (S.aba === 'mes:' + k) renderMes(d, ano, mes);
+      }).catch(function (e) {
+        elPainel.innerHTML = erroBox('Não foi possível carregar ' + App.mesLabel(ano, mes) + '. ' + (e && e.message ? e.message : ''));
+      });
+    }
 
-  const tbody = document.getElementById('tbody-historico');
-  const msgVazio = document.getElementById('msg-vazio');
-  if (!data.itens.length) {
-    tbody.innerHTML = '';
-    msgVazio.style.display = 'block';
-    return;
-  }
-  msgVazio.style.display = 'none';
+    function renderMes(d, ano, mes) {
+      var t = d.totais || {};
+      var html = '';
 
-  tbody.innerHTML = data.itens.map(i => {
-    const cls = i.vazia ? 'linha-vazia' : (i.tudo_pago ? 'row-pago' : 'row-devendo');
-    let badge;
-    if (i.vazia)         badge = '<span class="status-badge vazia">— vazia</span>';
-    else if (i.tudo_pago) badge = '<span class="status-badge pago">✅ PAGO</span>';
-    else                 badge = '<span class="status-badge aberto">⏳ ABERTO</span>';
+      html += '<div class="card" style="margin-bottom:12px"><div class="card-head">' +
+        '<div><div class="card-title">' + E(d.mes.label) + '</div>' +
+        '<div class="card-sub">' + (t.casas_ocupadas || 0) + ' casa(s) ocupada(s) · ' + (t.casas_vagas || 0) + ' vaga(s)' +
+        (d.mes.fechado ? ' · <span class="badge badge-dim">mês fechado</span>' : '') + '</div></div>' +
+        '<div class="right">' + (zero(t.total_aberto)
+          ? '<span class="badge badge-ok">tudo pago</span>'
+          : '<span class="badge badge-warn">' + (t.casas_devendo || 0) + ' devendo</span>') + '</div>' +
+        '</div><div class="card-body"><div class="stat-row grid grid-4">' +
+          stat('Cobrado', App.money(t.total_cobrado), '') +
+          stat('Recebido', '<span class="money-paid">' + App.money(t.total_recebido) + '</span>', '') +
+          stat('Em aberto', '<span class="' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.total_aberto) + '</span>', '') +
+          stat('Casas', (t.casas_pagas || 0) + ' / ' + ((t.casas_pagas || 0) + (t.casas_devendo || 0)), 'pagas / ocupadas') +
+        '</div></div></div>';
 
-    return `
-      <tr class="${cls}" onclick="location.href='/?ano=${i.ano}&mes=${i.mes}'">
-        <td><strong>${escapeHtml(i.ref)}</strong></td>
-        <td><span class="casa-num">${escapeHtml(i.casa_str)}</span></td>
-        <td>${escapeHtml(i.inquilino || (i.vazia ? '(vazia)' : '—'))}</td>
-        <td class="num">${brl(i.agua_valor)}</td>
-        <td class="num">${brl(i.luz_valor)}</td>
-        <td class="num">${i.outros_valor > 0 ? brl(i.outros_valor) : '—'}</td>
-        <td class="num">${brl(i.aluguel_valor)}</td>
-        <td class="num">${brl(i.total_cobrado)}</td>
-        <td>${badge}</td>
-        <td>${formatDataBR(i.pago_em)}</td>
-      </tr>
-    `;
-  }).join('');
-}
+      html += '<div class="grid grid-2" style="margin-bottom:12px">' + cardContas(d) + cardComparacao(ano, mes, d) + '</div>';
+      html += cardCasas(d);
+      elPainel.innerHTML = html;
+    }
 
-(async function init() {
-  await preencherCasas();
-  await carregar();
-})();
-</script>
+    function cardContas(d) {
+      var h = '<div class="card card-accent-agua"><div class="card-head"><div class="card-title">Contas do mês</div>' +
+        '<div class="card-sub">água por pessoa · luz por relógio</div></div><div class="card-body">';
+      h += '<div class="contas-linha"><div><span class="badge badge-agua">💧 Água</span> ' +
+        '<span class="muted small">' + (d.agua.moradores_total || 0) + ' morador(es) · ' + App.money(d.agua.valor_por_cabeca) + ' por cabeça</span></div>' +
+        '<div style="text-align:right"><div class="money">' + App.money(d.agua.total) + '</div>' +
+        '<div class="small muted">' + vencTexto(d.mes.agua_vencimento) + '</div></div></div>';
 
+      (d.relogios || []).forEach(function (r) {
+        h += '<div class="contas-linha"><div><span class="badge badge-luz">💡 ' + E(r.nome || ('Relógio ' + r.relogio)) + '</span> ' +
+          '<span class="muted small">casas ' + (r.casas || []).join(', ') + ' · ' + (r.casas_ocupadas || 0) + ' ocupada(s)</span></div>' +
+          '<div style="text-align:right"><div class="money">' + App.money(r.valor_total) + '</div>' +
+          '<div class="small muted">' + vencTexto(r.vencimento) + '</div></div></div>';
+      });
+
+      h += '<div class="contas-linha"><div><span class="badge badge-aluguel">🏠 Aluguel</span> ' +
+        '<span class="muted small">cobrado no mês</span></div>' +
+        '<div style="text-align:right"><div class="money">' + App.money(d.totais.aluguel_cobrado) + '</div>' +
+        '<div class="small muted">' + vencTexto(d.mes.aluguel_vencimento) + '</div></div></div>';
+
+      if (d.totais.outros_cobrado) {
+        h += '<div class="contas-linha"><div><span class="badge badge-outros">📦 Outros</span></div>' +
+          '<div class="money">' + App.money(d.totais.outros_cobrado) + '</div></div>';
+      }
+      return h + '</div></div>';
+    }
+
+    function vencTexto(iso) {
+      if (!iso) return 'sem vencimento';
+      return 'vence ' + App.dataBR(iso);
+    }
+
+    function cardComparacao(ano, mes, d) {
+      var meses = (S.hist && S.hist.meses) || [];
+      var i = -1;
+      meses.forEach(function (m, idx) { if (m.ano === ano && m.mes === mes) i = idx; });
+      var atual = i >= 0 ? meses[i] : null;
+      var ant = (i >= 0 && meses[i + 1]) ? meses[i + 1] : null; // lista vem decrescente
+
+      var h = '<div class="card"><div class="card-head"><div><div class="card-title">Comparação</div>' +
+        '<div class="card-sub">' + (ant ? 'vs. ' + E(ant.label) : 'sem mês anterior no histórico') + '</div></div></div><div class="card-body">';
+      if (!ant || !atual) {
+        h += '<div class="empty"><div class="empty-icon">📊</div><p class="muted small">Este é o mês mais antigo registrado — não há com o que comparar ainda.</p></div>';
+        return h + '</div></div>';
+      }
+      h += '<div class="stack">' +
+        blocoDelta('💧 Água', atual.agua_total, ant.agua_total) +
+        blocoDelta('💡 Luz', atual.luz_total, ant.luz_total) +
+        blocoDelta('Total cobrado', atual.total_cobrado, ant.total_cobrado) +
+        '</div>';
+      return h + '</div></div>';
+    }
+
+    function blocoDelta(rotulo, agora, antes) {
+      agora = Number(agora) || 0; antes = Number(antes) || 0;
+      var dif = agora - antes;
+      var cls = zero(dif) ? 'delta-flat' : (dif > 0 ? 'delta-up' : 'delta-down');
+      var seta = zero(dif) ? '=' : (dif > 0 ? '▲' : '▼');
+      var pct = zero(antes) ? (zero(agora) ? '0%' : 'novo') :
+        (dif >= 0 ? '+' : '−') + App.num(Math.abs(dif / antes * 100)) + '%';
+      return '<div style="padding:8px 0;border-bottom:1px solid var(--line)">' +
+        '<div class="small muted">' + E(rotulo) + '</div>' +
+        '<div class="delta"><span class="money">' + App.money(agora) + '</span>' +
+        '<span class="delta-val ' + cls + '">' + seta + ' ' + (zero(dif) ? '' : (dif > 0 ? '+' : '−')) + App.money(Math.abs(dif)) + '</span>' +
+        '<span class="delta-pct ' + cls + '">' + E(pct) + '</span></div>' +
+        '<div class="small dim">antes: ' + App.money(antes) + '</div></div>';
+    }
+
+    function cardCasas(d) {
+      var casas = d.casas || [];
+      if (!casas.length) {
+        return '<div class="card"><div class="card-body"><div class="empty"><div class="empty-icon">🏚️</div><p>Nenhuma casa neste mês.</p></div></div></div>';
+      }
+      var h = '<div class="card"><div class="card-head"><div class="card-title">Casas</div>' +
+        '<div class="card-sub">cobrado por item, o que foi pago e o que sobrou em aberto</div></div>' +
+        '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
+        '<th>Casa</th><th>Água</th><th>Luz</th><th>Outros</th><th>Aluguel</th>' +
+        '<th>Total</th><th>Pago</th><th>Em aberto</th><th>Quitação</th></tr></thead><tbody>';
+
+      casas.forEach(function (c) {
+        if (c.vazia) {
+          h += '<tr><td data-label="Casa"><span class="strong">' + E(c.casa_str) + '</span> <span class="badge badge-dim">vaga</span></td>' +
+            '<td data-label="Situação" colspan="8" class="muted small">Casa vaga no mês — sem cobrança.</td></tr>';
+          return;
+        }
+        h += '<tr>' +
+          '<td data-label="Casa"><span class="strong">' + E(c.casa_str) + '</span> ' + E(c.inquilino || '—') +
+            '<div class="small dim">' + (c.moradores || 0) + ' morador(es) · relógio ' + c.relogio + '</div></td>' +
+          celItem('Água', c.agua_valor, c.agua_pago, c.agua_pago_em) +
+          celItem('Luz', c.luz_valor, c.luz_pago, c.luz_pago_em) +
+          celItem('Outros', c.outros_valor, c.outros_pago, c.outros_pago_em, c.outros_descricao) +
+          celItem('Aluguel', c.aluguel_valor, c.aluguel_pago, c.aluguel_pago_em) +
+          '<td data-label="Total" class="money">' + App.money(c.total_mes) + '</td>' +
+          '<td data-label="Pago" class="money money-paid">' + App.money(c.total_pago) + '</td>' +
+          '<td data-label="Em aberto" class="money ' + (zero(c.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(c.total_aberto) + '</td>' +
+          '<td data-label="Quitação">' + (c.tudo_pago
+            ? '<span class="badge badge-ok">quitado</span>' + (c.quitado_em ? '<div class="small dim">' + E(App.dataBR(c.quitado_em)) + '</div>' : '')
+            : '<span class="badge badge-warn">em aberto</span>') + '</td>' +
+          '</tr>';
+      });
+
+      var t = d.totais || {};
+      h += '</tbody><tfoot><tr>' +
+        '<th>Totais</th>' +
+        '<th class="money">' + App.money(t.agua_cobrado) + '</th>' +
+        '<th class="money">' + App.money(t.luz_cobrado) + '</th>' +
+        '<th class="money">' + App.money(t.outros_cobrado) + '</th>' +
+        '<th class="money">' + App.money(t.aluguel_cobrado) + '</th>' +
+        '<th class="money">' + App.money(t.total_cobrado) + '</th>' +
+        '<th class="money money-paid">' + App.money(t.total_recebido) + '</th>' +
+        '<th class="money ' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.total_aberto) + '</th>' +
+        '<th></th></tr></tfoot></table></div></div>';
+      return h;
+    }
+
+    function celItem(rotulo, valor, pago, pagoEm, descricao) {
+      valor = Number(valor) || 0;
+      if (zero(valor)) return '<td data-label="' + rotulo + '" class="dim">—</td>';
+      return '<td data-label="' + rotulo + '" class="money ' + (pago ? 'money-paid' : 'money-open') + '">' +
+        (pago ? '✅ ' : '') + App.money(valor) +
+        (descricao ? '<span class="item-pago">' + E(descricao) + '</span>' : '') +
+        (pago && pagoEm ? '<span class="item-pago">pago ' + E(App.dataBR(pagoEm)) + '</span>' : '') +
+        '</td>';
+    }
+
+    /* ---------------- painel "por casa" ---------------- */
+    function renderPorCasa() {
+      elPrint.innerHTML = '<h2>Quintal — histórico por casa</h2>' +
+        '<p class="small">impresso em ' + E(App.dataBR(App.hoje())) + '</p>';
+      if (!S.casas.length) {
+        elPainel.innerHTML = '<div class="skeleton" style="height:200px"></div>';
+        App.api('/casas').then(function (cs) {
+          S.casas = Array.isArray(cs) ? cs : (cs && cs.casas) || [];
+          if (S.aba === 'casa') renderPorCasa();
+        }).catch(function (e) {
+          elPainel.innerHTML = erroBox('Não foi possível carregar as casas. ' + (e && e.message ? e.message : ''));
+        });
+        return;
+      }
+      if (!S.casaSel) S.casaSel = S.casas[0] ? S.casas[0].numero : null;
+
+      var opcoes = S.casas.map(function (c) {
+        var nome = c.inquilino ? c.inquilino : '(vaga)';
+        return '<option value="' + c.numero + '"' + (Number(c.numero) === Number(S.casaSel) ? ' selected' : '') + '>' +
+          'Casa ' + String(c.numero).padStart(2, '0') + ' — ' + E(nome) + '</option>';
+      }).join('');
+
+      elPainel.innerHTML =
+        '<div class="card" style="margin-bottom:12px"><div class="card-body">' +
+          '<div class="field no-print" style="max-width:340px">' +
+            '<label class="field-label" for="sel-casa">Escolha a casa</label>' +
+            '<select class="select" id="sel-casa">' + opcoes + '</select>' +
+          '</div>' +
+        '</div></div>' +
+        '<div id="casa-conteudo"><div class="skeleton" style="height:240px"></div></div>';
+
+      var sel = document.getElementById('sel-casa');
+      sel.addEventListener('change', function () { S.casaSel = Number(sel.value); carregarCasa(S.casaSel); });
+      carregarCasa(S.casaSel);
+    }
+
+    function carregarCasa(numero) {
+      var alvo = document.getElementById('casa-conteudo');
+      if (!alvo) return;
+      if (numero == null) { alvo.innerHTML = erroBox('Nenhuma casa cadastrada.'); return; }
+      if (S.cacheCasa[numero]) { renderCasa(S.cacheCasa[numero]); return; }
+      alvo.innerHTML = '<div class="skeleton" style="height:240px"></div>';
+      App.api('/historico/casa/' + numero).then(function (d) {
+        S.cacheCasa[numero] = d;
+        if (S.aba === 'casa' && Number(S.casaSel) === Number(numero)) renderCasa(d);
+      }).catch(function (e) {
+        var a = document.getElementById('casa-conteudo');
+        if (a) a.innerHTML = erroBox('Não foi possível carregar a casa ' + numero + '. ' + (e && e.message ? e.message : ''));
+      });
+    }
+
+    function renderCasa(d) {
+      var alvo = document.getElementById('casa-conteudo');
+      if (!alvo) return;
+      var c = d.casa || {};
+      var itens = d.itens || [];
+      var t = d.totais || {};
+
+      if (!itens.length) {
+        alvo.innerHTML = '<div class="card"><div class="card-body"><div class="empty"><div class="empty-icon">📭</div>' +
+          '<p class="strong">Sem lançamentos para esta casa</p>' +
+          '<p class="muted small">Ela ainda não aparece em nenhum mês do histórico.</p></div></div></div>';
+        return;
+      }
+
+      var h = '<div class="card card-accent-brand" style="margin-bottom:12px"><div class="card-head">' +
+        '<div><div class="card-title">Casa ' + E(String(c.numero != null ? c.numero : S.casaSel).padStart(2, '0')) + ' — ' + E(c.inquilino || '(vaga)') + '</div>' +
+        '<div class="card-sub">' + itens.length + ' mês(es) no histórico</div></div></div><div class="card-body">' +
+        '<div class="stat-row grid grid-3">' +
+          stat('Cobrado', App.money(t.cobrado), '') +
+          stat('Recebido', '<span class="money-paid">' + App.money(t.recebido) + '</span>', '') +
+          stat('Em aberto', '<span class="' + (zero(t.aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.aberto) + '</span>', '') +
+        '</div></div></div>';
+
+      // gráfico de barras empilhadas (CSS puro)
+      var max = 0;
+      itens.forEach(function (i) { if ((Number(i.total_mes) || 0) > max) max = Number(i.total_mes) || 0; });
+      if (max <= 0) max = 1;
+
+      var ordem = itens.slice().sort(function (a, b) { return (a.ano - b.ano) || (a.mes - b.mes); });
+      h += '<div class="card" style="margin-bottom:12px"><div class="card-head">' +
+        '<div><div class="card-title">Evolução mês a mês</div><div class="card-sub">valor cobrado, por item</div></div></div>' +
+        '<div class="card-body"><div class="chart">';
+      ordem.forEach(function (i) {
+        var f = 100 / max;
+        h += '<div class="bar-row">' +
+          '<div class="bar-lbl">' + E(labelCurto(i.ano, i.mes)) + '</div>' +
+          '<div class="bar-track" role="img" aria-label="' + E(i.label + ': ' + App.money(i.total_mes)) + '">' +
+            seg('agua', i.agua_valor, f) + seg('luz', i.luz_valor, f) +
+            seg('outros', i.outros_valor, f) + seg('aluguel', i.aluguel_valor, f) +
+          '</div>' +
+          '<div class="bar-val money">' + App.money(i.total_mes) + '</div>' +
+        '</div>';
+      });
+      h += '</div><div class="legenda">' +
+        '<span><i class="chip seg-agua"></i>Água</span>' +
+        '<span><i class="chip seg-luz"></i>Luz</span>' +
+        '<span><i class="chip seg-outros"></i>Outros</span>' +
+        '<span><i class="chip seg-aluguel"></i>Aluguel</span>' +
+        '</div></div></div>';
+
+      h += '<div class="card"><div class="card-head"><div class="card-title">Mês a mês</div></div>' +
+        '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
+        '<th>Mês</th><th>Água</th><th>Luz</th><th>Outros</th><th>Aluguel</th><th>Total</th><th>Em aberto</th><th>Situação</th>' +
+        '</tr></thead><tbody>';
+      itens.forEach(function (i) {
+        h += '<tr>' +
+          '<td data-label="Mês"><span class="strong">' + E(i.label) + '</span></td>' +
+          '<td data-label="Água" class="money">' + App.money(i.agua_valor) + '</td>' +
+          '<td data-label="Luz" class="money">' + App.money(i.luz_valor) + '</td>' +
+          '<td data-label="Outros" class="money">' + App.money(i.outros_valor) + '</td>' +
+          '<td data-label="Aluguel" class="money">' + App.money(i.aluguel_valor) + '</td>' +
+          '<td data-label="Total" class="money">' + App.money(i.total_mes) + '</td>' +
+          '<td data-label="Em aberto" class="money ' + (zero(i.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(i.total_aberto) + '</td>' +
+          '<td data-label="Situação">' + (i.tudo_pago
+            ? '<span class="badge badge-ok">quitado</span>' + (i.quitado_em ? '<div class="small dim">' + E(App.dataBR(i.quitado_em)) + '</div>' : '')
+            : '<span class="badge badge-warn">em aberto</span>') + '</td></tr>';
+      });
+      h += '</tbody><tfoot><tr><th>Totais</th><th colspan="4"></th>' +
+        '<th class="money">' + App.money(t.cobrado) + '</th>' +
+        '<th class="money ' + (zero(t.aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.aberto) + '</th>' +
+        '<th></th></tr></tfoot></table></div></div>';
+
+      alvo.innerHTML = h;
+    }
+
+    function seg(nome, valor, fator) {
+      valor = Number(valor) || 0;
+      if (valor <= 0) return '';
+      return '<span class="bar-seg seg-' + nome + '" style="width:' + (valor * fator).toFixed(2) + '%"></span>';
+    }
+
+    document.getElementById('btn-print').addEventListener('click', function () { window.print(); });
+
+    iniciar();
+  })();
+  </script>
 </body>
 </html>

@@ -1,173 +1,549 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<title>Casas — Controle de Aluguel</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/css/style.css">
-<script src="/js/mes-ref.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Quintal — Casas</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* regras específicas desta página — tudo com os tokens do design system */
+    /* 2 colunas só quando cabe de verdade: cada card tem um formulário inteiro dentro */
+    .casas-lista { display:grid; gap:var(--gap); grid-template-columns:1fr }
+    .casas-lista > .card + .card { margin-top:0 }
+    @media (min-width:1040px) { .casas-lista { grid-template-columns:repeat(2,minmax(0,1fr)) } }
+    .avisos { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px }
+    .avisos:empty { display:none }
+    .dirty-tag { display:none }
+    .is-dirty .dirty-tag { display:inline-flex }
+    .is-dirty { outline:1px solid var(--warn); outline-offset:0 }
+    .casa-num { font-variant-numeric:tabular-nums }
+    .rel-item { display:flex; justify-content:space-between; gap:12px; align-items:baseline;
+                padding:8px 0; border-bottom:1px solid var(--line) }
+    .rel-item:last-child { border-bottom:0 }
+    .sem-tel-lista { margin:8px 0 0; padding-left:18px }
+    .sem-tel-lista li { margin:2px 0 }
+    .sk-line { height:14px; border-radius:var(--r-sm); margin:10px 0 }
+    .sk-line.lg { height:24px; width:45% }
+  </style>
 </head>
 <body>
+  <div id="app-header"></div>
 
-<header>
-  <h1>🏠 Controle de Aluguel</h1>
-  <nav>
-    <a href="/">📅 Mês atual</a>
-    <a href="/recibos">📄 Recibos</a>
-    <a href="/devedores">⚠️ Devedores</a>
-    <a href="/historico">📊 Histórico</a>
-    <a href="/casas" class="active">🏘️ Casas</a>
-  </nav>
-  <span class="tag-mes-ativo" id="tag-mes-ativo" title="Ir pra Mês atual" onclick="location.href='/?ano='+getMesRef().ano+'&mes='+getMesRef().mes">📅 <span id="tag-mes-ativo-txt">—</span></span>
-  <form method="POST" action="/logout" style="margin:0">
-    <button type="submit" class="logout-btn">Sair</button>
-  </form>
-</header>
+  <main class="container" id="app">
+    <div class="stack">
+      <div class="row wrap">
+        <div class="col">
+          <h1 class="card-title">Casas do quintal</h1>
+          <p class="muted small">Este cadastro alimenta todo o resto do sistema: é daqui que saem o
+            aluguel de cada mês, as cabeças que dividem a água, o relógio de luz e o telefone do WhatsApp.</p>
+        </div>
+        <div class="right">
+          <button class="btn btn-outline" id="btn-nova" type="button">+ Adicionar casa</button>
+        </div>
+      </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const r = getMesRef();
-  const t = document.getElementById('tag-mes-ativo-txt');
-  if (t) t.textContent = `${NOMES_MES[r.mes]}/${r.ano}`;
-});
-</script>
-
-<main>
-
-  <div class="card">
-    <h2>Casas cadastradas</h2>
-    <p style="color:var(--muted);font-size:12px;margin:0 0 12px">
-      Aqui você define o inquilino padrão, o valor de aluguel e como cada casa
-      participa da divisão das contas.
-      <strong>Unidades de luz/água</strong>: peso na divisão. Default 1.
-      Se uma casa "vale por 2" (como a Casa 7 / Erivan), ponha <code>2</code>.
-      <strong>Relógio luz</strong>: agrupa casas no mesmo relógio para dividir só a conta dele.
-    </p>
-    <div style="overflow-x:auto">
-      <table id="tbl-casas">
-        <thead>
-          <tr>
-            <th>Nº</th>
-            <th>Inquilino atual</th>
-            <th>📞 Telefone</th>
-            <th>Aluguel padrão</th>
-            <th>Relógio luz</th>
-            <th>Unid. luz</th>
-            <th>Unid. água</th>
-            <th>Ativa?</th>
-            <th>Observações</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="tbody-casas"></tbody>
-      </table>
+      <div id="resumo"></div>
+      <div id="lista" class="stack"></div>
     </div>
-  </div>
+  </main>
 
-  <div class="card">
-    <h2>Adicionar nova casa</h2>
-    <div class="field-inline">
-      <div class="field" style="flex:0 0 70px"><label>Nº</label><input id="nv-numero" type="number" min="1"></div>
-      <div class="field" style="flex:2"><label>Inquilino</label><input id="nv-inquilino" type="text"></div>
-      <div class="field"><label>📞 Telefone</label><input id="nv-telefone" type="tel" placeholder="11987654321"></div>
-      <div class="field"><label>Aluguel R$</label><input id="nv-aluguel" type="number" step="0.01" value="0"></div>
-      <div class="field"><label>Relógio luz</label><input id="nv-relogio" type="number" min="1" value="1"></div>
-      <div class="field"><label>Unid. luz</label><input id="nv-uluz" type="number" step="0.5" value="1"></div>
-      <div class="field"><label>Unid. água</label><input id="nv-uagua" type="number" step="0.5" value="1"></div>
-      <div class="field"><label>&nbsp;</label><button class="primary" onclick="adicionar()">+ Adicionar</button></div>
-    </div>
-    <span id="toast" class="toast"></span>
-  </div>
+  <script src="/js/core.js"></script>
+  <script>
+  (function () {
+    App.mount('casas');
 
-</main>
+    var elResumo = document.getElementById('resumo');
+    var elLista  = document.getElementById('lista');
 
-<script>
-async function api(method, url, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  if (r.status === 401) { location.href = '/login'; throw new Error('401'); }
-  return r.json();
-}
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-function toast(msg, ok) {
-  const el = document.getElementById('toast');
-  el.className = 'toast ' + (ok ? 'ok' : 'err');
-  el.textContent = msg;
-  setTimeout(() => { el.className = 'toast'; el.textContent = ''; }, 2500);
-}
+    var state = { casas: [], form: {}, nova: null, carregando: true };
 
-async function carregar() {
-  const list = await api('GET', '/api/casas');
-  document.getElementById('tbody-casas').innerHTML = list.map(c => `
-    <tr data-id="${c.id}">
-      <td><input type="number" value="${c.numero}" data-field="numero" onblur="salvar(this)" style="width:60px"></td>
-      <td><input type="text" value="${escapeHtml(c.inquilino || '')}" data-field="inquilino" onblur="salvar(this)" placeholder="(sem inquilino)"></td>
-      <td><input type="tel" value="${escapeHtml(c.telefone || '')}" data-field="telefone" onblur="salvar(this)" placeholder="11987654321" style="width:120px"></td>
-      <td><input type="number" step="0.01" value="${c.aluguel_padrao}" data-field="aluguel_padrao" onblur="salvar(this)" style="width:90px"></td>
-      <td><input type="number" min="1" value="${c.relogio_luz}" data-field="relogio_luz" onblur="salvar(this)" style="width:60px"></td>
-      <td><input type="number" step="0.5" value="${c.unidades_luz}" data-field="unidades_luz" onblur="salvar(this)" style="width:60px"></td>
-      <td><input type="number" step="0.5" value="${c.unidades_agua}" data-field="unidades_agua" onblur="salvar(this)" style="width:60px"></td>
-      <td><input type="checkbox" data-field="ativa" ${c.ativa ? 'checked' : ''} onchange="salvar(this)"></td>
-      <td><input type="text" value="${escapeHtml(c.observacoes || '')}" data-field="observacoes" onblur="salvar(this)"></td>
-      <td><button class="danger" onclick="remover(${c.id})">excluir</button></td>
-    </tr>
-  `).join('');
-}
+    /* ---------- helpers ---------- */
 
-async function salvar(input) {
-  const tr = input.closest('tr');
-  const id = tr.dataset.id;
-  const field = input.dataset.field;
-  let value;
-  if (input.type === 'checkbox') value = input.checked ? 1 : 0;
-  else if (input.type === 'number') value = parseFloat(input.value);
-  else value = input.value;
-  await api('PUT', '/api/casas/' + id, { [field]: value });
-  toast('✅ Salvo', true);
-}
+    function digitos(s) { return String(s == null ? '' : s).replace(/\D+/g, ''); }
 
-async function adicionar() {
-  const body = {
-    numero:         parseInt(document.getElementById('nv-numero').value, 10),
-    inquilino:      document.getElementById('nv-inquilino').value.trim(),
-    telefone:       document.getElementById('nv-telefone').value.trim(),
-    aluguel_padrao: parseFloat(document.getElementById('nv-aluguel').value) || 0,
-    relogio_luz:    parseInt(document.getElementById('nv-relogio').value, 10) || 1,
-    unidades_luz:   parseFloat(document.getElementById('nv-uluz').value) || 1,
-    unidades_agua:  parseFloat(document.getElementById('nv-uagua').value) || 1,
-    ativa: 1,
-  };
-  if (!body.numero) return toast('Informe o número da casa', false);
-  const r = await api('POST', '/api/casas', body);
-  if (r.ok) {
-    ['nv-numero','nv-inquilino','nv-telefone','nv-aluguel','nv-relogio','nv-uluz','nv-uagua'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('nv-aluguel').value = 0;
-    document.getElementById('nv-relogio').value = 1;
-    document.getElementById('nv-uluz').value = 1;
-    document.getElementById('nv-uagua').value = 1;
-    await carregar();
-    toast('✅ Casa adicionada', true);
-  } else {
-    toast('❌ ' + r.error, false);
-  }
-}
+    // '5511987654321' -> '(11) 98765-4321' (o 55 é implícito na tela)
+    function mascaraTel(d) {
+      d = digitos(d).slice(0, 11);
+      if (!d) return '';
+      if (d.length <= 2) return '(' + d;
+      if (d.length <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+      if (d.length <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+      return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+    }
+    function telParaInput(tel) {
+      var d = digitos(tel);
+      if (d.indexOf('55') === 0 && d.length > 11) d = d.slice(2);
+      return mascaraTel(d);
+    }
+    // o backend guarda só dígitos, com DDI: 55 + DDD + número
+    function telParaApi(v) {
+      var d = digitos(v);
+      if (!d) return null;
+      if (d.length === 10 || d.length === 11) return '55' + d;
+      return d;
+    }
+    function telValido(v) {
+      var d = digitos(v);
+      return d.length === 0 || d.length === 10 || d.length === 11;
+    }
 
-async function remover(id) {
-  if (!confirm('Excluir esta casa? (se já houver lançamentos, ela será apenas desativada)')) return;
-  const r = await api('DELETE', '/api/casas/' + id);
-  if (r.ok) {
-    toast(r.deletada ? '✅ Excluída' : '✅ Desativada (havia histórico)', true);
-    await carregar();
-  } else {
-    toast('❌ ' + r.error, false);
-  }
-}
+    function moedaNum(v) {
+      if (typeof v === 'number') return v;
+      var s = String(v == null ? '' : v).trim().replace(/[^\d.,-]/g, '');
+      if (!s) return 0;
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    }
+    function numStr(n) {
+      if (n === null || n === undefined || n === '') return '';
+      return String(n).replace('.', ',');
+    }
+    function casaStr(n) { n = parseInt(n, 10); return (isNaN(n) ? '?' : (n < 10 ? '0' + n : '' + n)); }
+    function esc(s) { return App.escapeHtml(s == null ? '' : String(s)); }
 
-carregar();
-</script>
+    /* ---------- buffer de edição ---------- */
 
+    function campos(c) {
+      return {
+        numero:      c.numero == null ? '' : String(c.numero),
+        inquilino:   c.inquilino || '',
+        telefone:    telParaInput(c.telefone),
+        aluguel:     numStr(c.aluguel == null ? 0 : c.aluguel),
+        moradores:   String(c.moradores == null ? 1 : c.moradores),
+        relogio:     String(c.relogio == null ? 1 : c.relogio),
+        peso_luz:    numStr(c.peso_luz == null ? 1 : c.peso_luz),
+        ativa:       (c.ativa === undefined || c.ativa) ? 1 : 0,
+        observacoes: c.observacoes || ''
+      };
+    }
+    function chave(id) { return id === null ? 'nova' : String(id); }
+    function buffer(id) { return state.form[chave(id)]; }
+    function original(id) {
+      if (id === null) return campos({ inquilino: '', aluguel: 0, moradores: 1, relogio: 1, peso_luz: 1, ativa: 1, numero: state.nova ? state.nova.numero : '' });
+      for (var i = 0; i < state.casas.length; i++) if (state.casas[i].id === id) return campos(state.casas[i]);
+      return null;
+    }
+    function sujo(id) {
+      var o = original(id), f = buffer(id);
+      if (!o || !f) return false;
+      return JSON.stringify(o) !== JSON.stringify(f);
+    }
+
+    /* ---------- carregar ---------- */
+
+    function skeleton() {
+      var h = '';
+      for (var i = 0; i < 4; i++) {
+        h += '<section class="card"><div class="card-body">' +
+             '<div class="skeleton sk-line lg"></div>' +
+             '<div class="skeleton sk-line"></div>' +
+             '<div class="skeleton sk-line"></div>' +
+             '<div class="skeleton sk-line"></div>' +
+             '</div></section>';
+      }
+      elResumo.innerHTML = '<section class="card"><div class="card-body"><div class="skeleton sk-line lg"></div><div class="skeleton sk-line"></div></div></section>';
+      elLista.innerHTML = '<div class="casas-lista">' + h + '</div>';
+    }
+
+    function carregar() {
+      state.carregando = true;
+      skeleton();
+      App.api('/casas').then(function (r) {
+        var lista = Array.isArray(r) ? r : (r && r.casas) || [];
+        lista.sort(function (a, b) { return (a.numero || 0) - (b.numero || 0); });
+        state.casas = lista;
+        state.form = {};
+        for (var i = 0; i < lista.length; i++) state.form[chave(lista[i].id)] = campos(lista[i]);
+        if (state.nova) state.form.nova = state.form.nova || campos(state.nova);
+        state.carregando = false;
+        render();
+      }).catch(function () {
+        state.carregando = false;
+        elResumo.innerHTML = '';
+        elLista.innerHTML =
+          '<div class="empty"><div class="empty-icon">⚠️</div>' +
+          '<p class="strong">Não foi possível carregar as casas.</p>' +
+          '<p class="muted small">Verifique a conexão com o servidor e tente de novo.</p>' +
+          '<button class="btn btn-primary" data-acao="recarregar" type="button">Tentar de novo</button></div>';
+      });
+    }
+
+    /* ---------- resumo ---------- */
+
+    function renderResumo() {
+      var ativas = state.casas.filter(function (c) { return c.ativa; });
+      var ocupadas = ativas.filter(function (c) { return (c.inquilino || '').trim() !== ''; });
+      var vagas = ativas.length - ocupadas.length;
+      var moradores = ocupadas.reduce(function (s, c) { return s + (Number(c.moradores) || 0); }, 0);
+      var aluguel = ocupadas.reduce(function (s, c) { return s + (Number(c.aluguel) || 0); }, 0);
+      var semTel = ocupadas.filter(function (c) { return !digitos(c.telefone); });
+
+      var rel = [1, 2].map(function (r) {
+        var doRel = ativas.filter(function (c) { return Number(c.relogio) === r; });
+        var oc = doRel.filter(function (c) { return (c.inquilino || '').trim() !== ''; });
+        return {
+          relogio: r,
+          casas: doRel.map(function (c) { return casaStr(c.numero); }).join(', ') || '—',
+          ocupadas: oc.length,
+          moradores: oc.reduce(function (s, c) { return s + (Number(c.moradores) || 0); }, 0),
+          peso: oc.reduce(function (s, c) { return s + (Number(c.peso_luz) || 0); }, 0)
+        };
+      });
+      var outros = ativas.filter(function (c) { return Number(c.relogio) !== 1 && Number(c.relogio) !== 2; });
+
+      var h = '';
+
+      h += '<section class="card card-accent-brand">' +
+           '<div class="card-head"><div>' +
+           '<div class="card-title">Resumo do cadastro</div>' +
+           '<div class="card-sub">Considera apenas o que já está salvo.</div>' +
+           '</div></div>';
+
+      h += '<div class="card-body"><div class="stat-row">' +
+           stat('Casas ativas', ativas.length, ocupadas.length + ' ocupada(s) · ' + vagas + ' vaga(s)') +
+           stat('Moradores (cabeças)', moradores, 'É este número que divide a conta de água') +
+           stat('Aluguel dos ocupados', App.money(aluguel), 'Soma do aluguel cadastrado das casas ocupadas') +
+           stat('Sem telefone', semTel.length, semTel.length ? 'Não recebem WhatsApp' : 'Todas as ocupadas têm telefone') +
+           '</div>';
+
+      h += '<div class="stack" style="margin-top:14px">';
+      h += '<div class="card-sub strong">Relógios de luz</div>';
+      rel.forEach(function (r) {
+        h += '<div class="rel-item"><div><span class="badge badge-luz">Relógio ' + r.relogio + '</span> ' +
+             '<span class="small muted">casas ' + esc(r.casas) + '</span></div>' +
+             '<div class="small">' + r.ocupadas + ' ocupada(s) · ' + r.moradores + ' morador(es) · peso total ' +
+             App.num(r.peso) + '</div></div>';
+      });
+      if (outros.length) {
+        h += '<div class="badge badge-err">Há casa(s) com relógio diferente de 1 ou 2: ' +
+             esc(outros.map(function (c) { return casaStr(c.numero); }).join(', ')) + '</div>';
+      }
+      h += '<p class="muted small">A luz é dividida dentro de cada relógio pelo <span class="strong">peso</span> das casas ocupadas ' +
+           '(peso 1 em todas = divisão igual). A água é dividida por cabeça, somando os moradores de todas as casas ocupadas.</p>';
+      h += '</div>';
+
+      if (semTel.length) {
+        h += '<div class="stack" style="margin-top:14px">' +
+             '<div class="badge badge-warn">Sem telefone: ' + semTel.length + ' casa(s) ocupada(s)</div>' +
+             '<ul class="sem-tel-lista small muted">' +
+             semTel.map(function (c) { return '<li>Casa ' + casaStr(c.numero) + ' — ' + esc(c.inquilino) + '</li>'; }).join('') +
+             '</ul>' +
+             '<p class="muted small">Os telefones começam vazios. Enquanto não forem preenchidos, ' +
+             'a tela de WhatsApp não consegue abrir a conversa dessas casas (só dá pra copiar o texto).</p>' +
+             '</div>';
+      }
+
+      h += '</div></section>';
+      elResumo.innerHTML = h;
+    }
+
+    function stat(label, valor, hint) {
+      return '<div class="stat"><div class="stat-label">' + esc(label) + '</div>' +
+             '<div class="stat-value">' + esc(valor) + '</div>' +
+             (hint ? '<div class="stat-hint">' + esc(hint) + '</div>' : '') + '</div>';
+    }
+
+    /* ---------- avisos por casa ---------- */
+
+    function avisosHtml(id) {
+      var f = buffer(id); if (!f) return '';
+      var b = [];
+      var vaga = f.inquilino.trim() === '';
+      if (!f.ativa) b.push('<span class="badge badge-dim">Inativa — não entra nos próximos meses</span>');
+      if (vaga) b.push('<span class="badge badge-info">Casa vaga — não paga água, luz nem aluguel</span>');
+      if (!vaga && !digitos(f.telefone)) b.push('<span class="badge badge-warn">Sem telefone — não dá pra mandar WhatsApp</span>');
+      if (digitos(f.telefone) && !telValido(f.telefone)) b.push('<span class="badge badge-err">Telefone incompleto</span>');
+      if (!vaga && (parseInt(f.moradores, 10) || 0) < 1) b.push('<span class="badge badge-warn">Sem moradores — não entra no rateio da água</span>');
+      if (moedaNum(f.peso_luz) <= 0) b.push('<span class="badge badge-warn">Peso da luz zerado</span>');
+      return b.join('');
+    }
+
+    /* ---------- card da casa ---------- */
+
+    function cardCasa(c, nova) {
+      var id = nova ? null : c.id;
+      var k = chave(id);
+      var f = buffer(id);
+      var num = f.numero || (c.numero || '');
+      var vaga = f.inquilino.trim() === '';
+
+      var acento = nova ? 'card-accent-brand' : (f.ativa ? (vaga ? '' : 'card-accent-aluguel') : '');
+
+      var h = '<section class="card ' + acento + '" data-casa="' + k + '">';
+
+      h += '<div class="card-head"><div>' +
+           '<div class="card-title casa-num">' + (nova ? 'Nova casa' : 'Casa ' + casaStr(num)) + '</div>' +
+           '<div class="card-sub" data-sub="' + k + '">' + (vaga ? 'Vaga' : esc(f.inquilino)) + '</div>' +
+           '</div><div class="right">' +
+           '<span class="badge badge-warn dirty-tag">alterações não salvas</span>' +
+           '</div></div>';
+
+      h += '<div class="card-body">';
+      h += '<div class="avisos" data-avisos="' + k + '">' + avisosHtml(id) + '</div>';
+
+      h += '<div class="form-grid">';
+
+      h += campoNum(k, 'numero', 'Número da casa', f.numero, '1', 'Identifica a casa no quintal.');
+
+      h += '<div class="field"><label class="field-label" for="inq-' + k + '">Inquilino</label>' +
+           '<input class="input" id="inq-' + k + '" type="text" autocomplete="off" data-casa="' + k + '" data-campo="inquilino" ' +
+           'value="' + esc(f.inquilino) + '" placeholder="Nome de quem mora">' +
+           '<div class="field-hint">Deixe <span class="strong">vazio</span> se a casa está vaga.</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="tel-' + k + '">Telefone (WhatsApp)</label>' +
+           '<input class="input" id="tel-' + k + '" type="tel" inputmode="numeric" autocomplete="off" data-casa="' + k + '" data-campo="telefone" ' +
+           'value="' + esc(f.telefone) + '" placeholder="(11) 98765-4321" maxlength="16">' +
+           '<div class="field-hint">Começa vazio. Sem telefone, a tela de WhatsApp não abre a conversa desta casa.</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="alu-' + k + '">Aluguel</label>' +
+           '<div class="input-money"><input class="input" id="alu-' + k + '" type="text" inputmode="decimal" data-casa="' + k + '" data-campo="aluguel" ' +
+           'value="' + esc(f.aluguel) + '" placeholder="350,00"></div>' +
+           '<div class="field-hint">Valor padrão. Ao criar um mês novo ele é copiado e pode ser ajustado lá.</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="mor-' + k + '">Moradores (cabeças)</label>' +
+           '<input class="input" id="mor-' + k + '" type="number" min="0" step="1" inputmode="numeric" data-casa="' + k + '" data-campo="moradores" ' +
+           'value="' + esc(f.moradores) + '">' +
+           '<div class="field-hint">Quantas pessoas moram aqui. <span class="strong">É este número que rateia a conta de água</span> ' +
+           '(água total ÷ total de moradores × moradores da casa).</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="rel-' + k + '">Relógio de luz</label>' +
+           '<select class="select" id="rel-' + k + '" data-casa="' + k + '" data-campo="relogio">' +
+           '<option value="1"' + (String(f.relogio) === '1' ? ' selected' : '') + '>Relógio 1 — casas 1, 2 e 3</option>' +
+           '<option value="2"' + (String(f.relogio) === '2' ? ' selected' : '') + '>Relógio 2 — casas 4, 5, 6 e 7</option>' +
+           '</select>' +
+           '<div class="field-hint">São duas contas de luz separadas, uma por relógio.</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="pes-' + k + '">Peso da luz</label>' +
+           '<input class="input" id="pes-' + k + '" type="text" inputmode="decimal" data-casa="' + k + '" data-campo="peso_luz" ' +
+           'value="' + esc(f.peso_luz) + '" placeholder="1">' +
+           '<div class="field-hint">1 = divide igual com as outras casas do relógio. Use 2 se esta casa gasta o dobro.</div></div>';
+
+      h += '<div class="field"><span class="field-label">Situação</span>' +
+           '<label class="switch"><input type="checkbox" data-casa="' + k + '" data-campo="ativa"' + (f.ativa ? ' checked' : '') + '>' +
+           '<span>Casa ativa</span></label>' +
+           '<div class="field-hint">Casa inativa deixa de aparecer nos meses novos (o histórico continua).</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="obs-' + k + '">Observações</label>' +
+           '<textarea class="textarea" id="obs-' + k + '" rows="2" data-casa="' + k + '" data-campo="observacoes" ' +
+           'placeholder="Ex.: estoque, casa dos fundos...">' + esc(f.observacoes) + '</textarea></div>';
+
+      h += '</div></div>';
+
+      h += '<div class="card-foot">' +
+           '<button class="btn btn-primary" type="button" data-acao="salvar" data-casa="' + k + '">' +
+           (nova ? 'Criar casa' : 'Salvar') + '</button>' +
+           (nova
+             ? '<button class="btn btn-ghost" type="button" data-acao="cancelar-nova">Cancelar</button>'
+             : '<button class="btn btn-ghost" type="button" data-acao="desfazer" data-casa="' + k + '">Desfazer</button>' +
+               '<span class="spacer"></span>' +
+               '<button class="btn btn-danger btn-sm" type="button" data-acao="remover" data-casa="' + k + '">Remover</button>') +
+           '</div>';
+
+      h += '</section>';
+      return h;
+    }
+
+    function campoNum(k, campo, label, valor, ph, hint) {
+      return '<div class="field"><label class="field-label" for="' + campo + '-' + k + '">' + esc(label) + '</label>' +
+             '<input class="input" id="' + campo + '-' + k + '" type="number" min="1" step="1" inputmode="numeric" ' +
+             'data-casa="' + k + '" data-campo="' + campo + '" value="' + esc(valor) + '" placeholder="' + esc(ph) + '">' +
+             (hint ? '<div class="field-hint">' + esc(hint) + '</div>' : '') + '</div>';
+    }
+
+    /* ---------- render ---------- */
+
+    function render() {
+      renderResumo();
+
+      if (!state.casas.length && !state.nova) {
+        elLista.innerHTML = '<div class="empty"><div class="empty-icon">🏠</div>' +
+          '<p class="strong">Nenhuma casa cadastrada.</p>' +
+          '<p class="muted small">Adicione a primeira casa para começar.</p>' +
+          '<button class="btn btn-primary" type="button" data-acao="nova">+ Adicionar casa</button></div>';
+        return;
+      }
+
+      var h = '<div class="casas-lista">';
+      state.casas.forEach(function (c) { h += cardCasa(c, false); });
+      if (state.nova) h += cardCasa(state.nova, true);
+      h += '</div>';
+      elLista.innerHTML = h;
+
+      // marca cards com alterações pendentes (ex.: depois de um erro de salvamento)
+      state.casas.forEach(function (c) { marcarSujo(c.id); });
+      if (state.nova) marcarSujo(null);
+    }
+
+    function cardEl(k) { return document.querySelector('[data-casa="' + k + '"].card'); }
+
+    function marcarSujo(id) {
+      var el = cardEl(chave(id));
+      if (!el) return;
+      el.classList.toggle('is-dirty', id === null ? true : sujo(id));
+    }
+
+    function atualizarCard(id) {
+      var k = chave(id), f = buffer(id);
+      var av = document.querySelector('[data-avisos="' + k + '"]');
+      if (av) av.innerHTML = avisosHtml(id);
+      var sub = document.querySelector('[data-sub="' + k + '"]');
+      if (sub) sub.textContent = f.inquilino.trim() === '' ? 'Vaga' : f.inquilino;
+      marcarSujo(id);
+    }
+
+    /* ---------- eventos ---------- */
+
+    document.addEventListener('input', function (e) {
+      var el = e.target.closest('[data-campo]');
+      if (!el) return;
+      var k = el.getAttribute('data-casa');
+      var campo = el.getAttribute('data-campo');
+      var f = state.form[k];
+      if (!f) return;
+
+      if (campo === 'telefone') {
+        var pos = el.selectionStart, antes = el.value.length;
+        el.value = mascaraTel(el.value);
+        if (pos !== null && pos < antes) el.setSelectionRange(pos + (el.value.length - antes), pos + (el.value.length - antes));
+        f.telefone = el.value;
+      } else if (campo === 'ativa') {
+        f.ativa = el.checked ? 1 : 0;
+      } else {
+        f[campo] = el.value;
+      }
+      atualizarCard(k === 'nova' ? null : parseInt(k, 10));
+    });
+
+    document.addEventListener('change', function (e) {
+      var el = e.target.closest('[data-campo]');
+      if (!el) return;
+      var k = el.getAttribute('data-casa');
+      var campo = el.getAttribute('data-campo');
+      var f = state.form[k];
+      if (!f) return;
+      if (campo === 'ativa') f.ativa = el.checked ? 1 : 0;
+      else if (campo !== 'telefone') f[campo] = el.value;
+      atualizarCard(k === 'nova' ? null : parseInt(k, 10));
+    });
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-acao]');
+      if (!btn) return;
+      var acao = btn.getAttribute('data-acao');
+      var k = btn.getAttribute('data-casa');
+      var id = (k && k !== 'nova') ? parseInt(k, 10) : null;
+
+      if (acao === 'recarregar') return carregar();
+      if (acao === 'nova') return novaCasa();
+      if (acao === 'cancelar-nova') { state.nova = null; delete state.form.nova; return render(); }
+      if (acao === 'desfazer') {
+        state.form[k] = original(id);
+        return render();
+      }
+      if (acao === 'salvar') return salvar(id, btn);
+      if (acao === 'remover') return remover(id);
+    });
+
+    document.getElementById('btn-nova').addEventListener('click', novaCasa);
+
+    /* ---------- ações ---------- */
+
+    function novaCasa() {
+      if (state.nova) {
+        var el = cardEl('nova');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      var max = state.casas.reduce(function (m, c) { return Math.max(m, Number(c.numero) || 0); }, 0);
+      state.nova = { numero: max + 1, inquilino: '', telefone: '', aluguel: 0, moradores: 1, relogio: (max + 1) <= 3 ? 1 : 2, peso_luz: 1, ativa: 1, observacoes: '' };
+      state.form.nova = campos(state.nova);
+      render();
+      var novo = cardEl('nova');
+      if (novo) novo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function validar(f) {
+      var numero = parseInt(f.numero, 10);
+      if (!numero || numero < 1) return 'Informe o número da casa.';
+      if (!telValido(f.telefone)) return 'Telefone incompleto: use DDD + número (10 ou 11 dígitos).';
+      var mor = parseInt(f.moradores, 10);
+      if (isNaN(mor) || mor < 0) return 'Moradores não pode ser negativo.';
+      if (moedaNum(f.aluguel) < 0) return 'Aluguel não pode ser negativo.';
+      if (moedaNum(f.peso_luz) < 0) return 'Peso da luz não pode ser negativo.';
+      var rel = parseInt(f.relogio, 10);
+      if (rel !== 1 && rel !== 2) return 'Relógio precisa ser 1 ou 2.';
+      return null;
+    }
+
+    function payload(f) {
+      return {
+        numero: parseInt(f.numero, 10),
+        inquilino: f.inquilino.trim(),
+        telefone: telParaApi(f.telefone),
+        aluguel: moedaNum(f.aluguel),
+        moradores: parseInt(f.moradores, 10) || 0,
+        relogio: parseInt(f.relogio, 10),
+        peso_luz: moedaNum(f.peso_luz),
+        ativa: f.ativa ? 1 : 0,
+        observacoes: f.observacoes.trim()
+      };
+    }
+
+    function salvar(id, btn) {
+      var f = buffer(id);
+      if (!f) return;
+      var erro = validar(f);
+      if (erro) { App.toast(erro, 'err'); return; }
+
+      var body = payload(f);
+      btn.disabled = true;
+      var antes = btn.textContent;
+      btn.textContent = 'Salvando...';
+
+      var req = (id === null)
+        ? App.api('/casas', { method: 'POST', body: body })
+        : App.api('/casas/' + id, { method: 'PUT', body: body });
+
+      req.then(function () {
+        if (id === null) { state.nova = null; delete state.form.nova; }
+        App.toast(id === null ? 'Casa criada.' : 'Casa ' + casaStr(body.numero) + ' salva.', 'ok');
+        carregar();
+      }).catch(function () {
+        btn.disabled = false;
+        btn.textContent = antes;
+      });
+    }
+
+    function remover(id) {
+      var c = null;
+      for (var i = 0; i < state.casas.length; i++) if (state.casas[i].id === id) c = state.casas[i];
+      if (!c) return;
+      App.confirmar({
+        titulo: 'Remover casa ' + casaStr(c.numero) + '?',
+        texto: 'Se esta casa já tiver lançamentos em algum mês, ela não é apagada: fica apenas desativada, ' +
+               'para o histórico continuar íntegro.',
+        ok: 'Remover',
+        cancelar: 'Cancelar',
+        perigo: true
+      }).then(function (ok) {
+        if (!ok) return;
+        return App.api('/casas/' + id, { method: 'DELETE' }).then(function (r) {
+          App.toast(r && r.desativada ? 'Casa desativada (tem histórico).' : 'Casa removida.', 'ok');
+          carregar();
+        });
+      }).catch(function () { /* erro já sinalizado pelo App.api */ });
+    }
+
+    // evita perder edição sem querer ao sair da página
+    window.addEventListener('beforeunload', function (e) {
+      var pendente = state.casas.some(function (c) { return sujo(c.id); }) || (!!state.nova && sujo(null));
+      if (pendente) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    carregar();
+  })();
+  </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "name": "controle-casa-de-aluguel",
-  "version": "1.0.0",
-  "description": "Sistema web para controle mensal de contas (água, luz, aluguel) das casas de aluguel — com divisão automática entre inquilinos e split 50/50 entre pai e mãe com descontos.",
+  "version": "3.0.0",
+  "description": "Quintal — controle mensal das 7 casas de aluguel: água rateada por cabeça, luz por relógio, marcação de pagamento, vencimentos, mensagens prontas de WhatsApp com preview e confirmação, histórico mês a mês e regras de convivência.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
