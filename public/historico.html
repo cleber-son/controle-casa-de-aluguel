@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0b0f14">
+  <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Histórico</title>
   <link rel="stylesheet" href="/css/app.css">
   <style>
@@ -40,6 +41,33 @@
     .legenda span{display:inline-flex;align-items:center;gap:6px}
     .chip{width:11px;height:11px;border-radius:3px;display:inline-block}
 
+    /* --- cartões por casa (um cartão por casa, no lugar da tabela) --- */
+    .casas-grid{display:grid;gap:var(--gap);grid-template-columns:1fr}
+    @media (min-width:700px){.casas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media (min-width:1080px){.casas-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+    .hc{display:flex;flex-direction:column}
+    .hc .card-body{padding:2px var(--pad)}
+    .hc-casa{font-size:1.05rem;font-weight:800;letter-spacing:-.01em}
+    .hc-nome{font-size:.95rem;font-weight:700;color:var(--txt)}
+    .hc-sub{font-size:.78rem;color:var(--txt-mute)}
+
+    .hc-linha{display:flex;align-items:center;justify-content:space-between;gap:12px;
+      min-height:42px;padding:8px 0;border-bottom:1px solid var(--line)}
+    .hc-linha:last-child{border-bottom:0}
+    .hc-rot{display:inline-flex;align-items:center;gap:8px;min-width:0;
+      font-size:.88rem;font-weight:650;color:var(--txt-dim)}
+    .hc-rot .chip{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+    .hc-val{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700}
+    .hc-linha.is-zero .hc-rot,.hc-linha.is-zero .hc-val{color:var(--txt-mute);font-weight:600}
+
+    .hc-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .hc-foot .hc-tot-lbl{font-size:.72rem;font-weight:800;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--txt-mute)}
+    .hc-foot .money-lg{font-size:1.24rem}
+    .hc-pagos{text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums;line-height:1.5}
+    .hc-vaga{opacity:.6}
+
     .item-pago{display:block;font-size:.72rem;color:var(--txt-mute);margin-top:2px}
     .contas-linha{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
     .contas-linha:last-child{border-bottom:0}
@@ -53,6 +81,8 @@
       .no-print{display:none !important}
       .print-only{display:block;margin-bottom:14px}
       .print-only h2{margin:0 0 2px;font-size:18pt}
+      .casas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .hc{break-inside:avoid;page-break-inside:avoid}
       .chart .bar-track{border:1px solid #999}
       .bar-seg{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     }
@@ -297,56 +327,88 @@
       if (!casas.length) {
         return '<div class="card"><div class="card-body"><div class="empty"><div class="empty-icon">🏚️</div><p>Nenhuma casa neste mês.</p></div></div></div>';
       }
-      var h = '<div class="card"><div class="card-head"><div class="card-title">Casas</div>' +
-        '<div class="card-sub">cobrado por item, o que foi pago e o que sobrou em aberto</div></div>' +
-        '<div class="table-wrap"><table class="table table-cards"><thead><tr>' +
-        '<th>Casa</th><th>Água</th><th>Luz</th><th>Outros</th><th>Aluguel</th>' +
-        '<th>Total</th><th>Pago</th><th>Em aberto</th><th>Quitação</th></tr></thead><tbody>';
 
-      casas.forEach(function (c) {
-        if (c.vazia) {
-          h += '<tr><td data-label="Casa"><span class="strong">' + E(c.casa_str) + '</span> <span class="badge badge-dim">vaga</span></td>' +
-            '<td data-label="Situação" colspan="8" class="muted small">Casa vaga no mês — sem cobrança.</td></tr>';
-          return;
-        }
-        h += '<tr>' +
-          '<td data-label="Casa"><span class="strong">' + E(c.casa_str) + '</span> ' + E(c.inquilino || '—') +
-            '<div class="small dim">' + (c.moradores || 0) + ' morador(es) · relógio ' + c.relogio + '</div></td>' +
-          celItem('Água', c.agua_valor, c.agua_pago, c.agua_pago_em) +
-          celItem('Luz', c.luz_valor, c.luz_pago, c.luz_pago_em) +
-          celItem('Outros', c.outros_valor, c.outros_pago, c.outros_pago_em, c.outros_descricao) +
-          celItem('Aluguel', c.aluguel_valor, c.aluguel_pago, c.aluguel_pago_em) +
-          '<td data-label="Total" class="money">' + App.money(c.total_mes) + '</td>' +
-          '<td data-label="Pago" class="money money-paid">' + App.money(c.total_pago) + '</td>' +
-          '<td data-label="Em aberto" class="money ' + (zero(c.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(c.total_aberto) + '</td>' +
-          '<td data-label="Quitação">' + (c.tudo_pago
-            ? '<span class="badge badge-ok">quitado</span>' + (c.quitado_em ? '<div class="small dim">' + E(App.dataBR(c.quitado_em)) + '</div>' : '')
-            : '<span class="badge badge-warn">em aberto</span>') + '</td>' +
-          '</tr>';
-      });
+      var h = '<div class="card-head" style="padding:0 0 10px;border:0;background:transparent">' +
+        '<div><div class="card-title">Casas</div>' +
+        '<div class="card-sub">um cartão por casa — o que foi cobrado, o que entrou e o que sobrou</div></div></div>' +
+        '<div class="casas-grid">';
+
+      casas.forEach(function (c) { h += cartaoCasa(c); });
+      h += '</div>';
 
       var t = d.totais || {};
-      h += '</tbody><tfoot><tr>' +
-        '<th>Totais</th>' +
-        '<th class="money">' + App.money(t.agua_cobrado) + '</th>' +
-        '<th class="money">' + App.money(t.luz_cobrado) + '</th>' +
-        '<th class="money">' + App.money(t.outros_cobrado) + '</th>' +
-        '<th class="money">' + App.money(t.aluguel_cobrado) + '</th>' +
-        '<th class="money">' + App.money(t.total_cobrado) + '</th>' +
-        '<th class="money money-paid">' + App.money(t.total_recebido) + '</th>' +
-        '<th class="money ' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.total_aberto) + '</th>' +
-        '<th></th></tr></tfoot></table></div></div>';
+      h += '<div class="card" style="margin-top:var(--gap)">' +
+        '<div class="card-head"><div class="card-title">Totais do mês</div></div>' +
+        '<div class="card-body">' +
+          linhaItem('agua', '💧 Água', t.agua_cobrado) +
+          linhaItem('luz', '💡 Luz', t.luz_cobrado) +
+          linhaItem('outros', '📦 Outros', t.outros_cobrado) +
+          linhaItem('aluguel', '🔑 Aluguel', t.aluguel_cobrado) +
+        '</div>' +
+        '<div class="card-foot hc-foot">' +
+          '<div><div class="hc-tot-lbl">Total cobrado</div>' +
+            '<div class="money money-lg">' + App.money(t.total_cobrado) + '</div></div>' +
+          '<div class="hc-pagos">' +
+            '<div class="money money-paid">recebido ' + App.money(t.total_recebido) + '</div>' +
+            '<div class="money ' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">em aberto ' + App.money(t.total_aberto) + '</div>' +
+          '</div>' +
+        '</div></div>';
+
       return h;
     }
 
-    function celItem(rotulo, valor, pago, pagoEm, descricao) {
+    function cartaoCasa(c) {
+      if (c.vazia) {
+        return '<div class="card hc hc-vaga">' +
+          '<div class="card-head"><div style="min-width:0">' +
+            '<div class="hc-casa">🏠 Casa ' + E(c.casa_str) + '</div>' +
+            '<div class="hc-sub">sem inquilino</div></div>' +
+            '<span class="spacer"></span><span class="badge badge-dim">vaga</span>' +
+          '</div>' +
+          '<div class="card-body"><p class="muted small" style="padding:10px 0">Casa vaga no mês — sem cobrança.</p></div>' +
+          '</div>';
+      }
+
+      return '<div class="card hc' + (c.tudo_pago ? ' card-accent-brand' : '') + '">' +
+        '<div class="card-head"><div style="min-width:0">' +
+          '<div class="hc-casa">🏠 Casa ' + E(c.casa_str) + '</div>' +
+          '<div class="hc-nome truncate">' + E(c.inquilino || '—') + '</div>' +
+          '<div class="hc-sub">' + (c.moradores || 0) + (Number(c.moradores) === 1 ? ' morador' : ' moradores') +
+            ' · relógio ' + E(String(c.relogio)) + '</div>' +
+        '</div><span class="spacer"></span>' +
+        (c.tudo_pago
+          ? '<span class="badge badge-ok">quitado' + (c.quitado_em ? ' ' + E(App.dataBR(c.quitado_em)) : '') + '</span>'
+          : '<span class="badge badge-warn">em aberto</span>') +
+        '</div>' +
+
+        '<div class="card-body">' +
+          linhaItem('agua', '💧 Água', c.agua_valor, c.agua_pago, c.agua_pago_em) +
+          linhaItem('luz', '💡 Luz', c.luz_valor, c.luz_pago, c.luz_pago_em) +
+          linhaItem('outros', '📦 Outros', c.outros_valor, c.outros_pago, c.outros_pago_em, c.outros_descricao) +
+          linhaItem('aluguel', '🔑 Aluguel', c.aluguel_valor, c.aluguel_pago, c.aluguel_pago_em) +
+        '</div>' +
+
+        '<div class="card-foot hc-foot">' +
+          '<div><div class="hc-tot-lbl">Valor do mês</div>' +
+            '<div class="money money-lg">' + App.money(c.total_mes) + '</div></div>' +
+          '<div class="hc-pagos">' +
+            '<div class="money money-paid">pago ' + App.money(c.total_pago) + '</div>' +
+            '<div class="money ' + (zero(c.total_aberto) ? 'money-paid' : 'money-open') + '">em aberto ' + App.money(c.total_aberto) + '</div>' +
+          '</div>' +
+        '</div></div>';
+    }
+
+    // uma linha "rótulo ....... valor" dentro do cartão
+    function linhaItem(cor, rotulo, valor, pago, pagoEm, descricao) {
       valor = Number(valor) || 0;
-      if (zero(valor)) return '<td data-label="' + rotulo + '" class="dim">—</td>';
-      return '<td data-label="' + rotulo + '" class="money ' + (pago ? 'money-paid' : 'money-open') + '">' +
-        (pago ? '✅ ' : '') + App.money(valor) +
-        (descricao ? '<span class="item-pago">' + E(descricao) + '</span>' : '') +
-        (pago && pagoEm ? '<span class="item-pago">pago ' + E(App.dataBR(pagoEm)) + '</span>' : '') +
-        '</td>';
+      var vazio = zero(valor);
+      return '<div class="hc-linha' + (vazio ? ' is-zero' : '') + '">' +
+        '<span class="hc-rot"><i class="chip seg-' + cor + '" aria-hidden="true"></i>' +
+          '<span class="truncate">' + E(rotulo) + (descricao ? ' — ' + E(descricao) : '') + '</span></span>' +
+        '<span class="hc-val ' + (vazio ? '' : (pago ? 'money money-paid' : (pago === undefined ? 'money' : 'money money-open'))) + '">' +
+          (vazio ? '—' : (pago ? '✅ ' : '') + App.money(valor)) +
+          (!vazio && pago && pagoEm ? '<span class="item-pago">pago ' + E(App.dataBR(pagoEm)) + '</span>' : '') +
+        '</span></div>';
     }
 
     /* ---------------- painel "por casa" ---------------- */

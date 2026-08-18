@@ -13,6 +13,48 @@
   ];
 
   var CHAVE_MES = 'quintal.mes';
+  var CHAVE_TEMA = 'quintal.tema';
+
+  /* ----------------------------------------------------------------- tema */
+
+  function temaAtual() {
+    try {
+      var t = window.localStorage.getItem(CHAVE_TEMA);
+      if (t === 'claro' || t === 'escuro') return t;
+    } catch (e) { /* ignora */ }
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'claro';
+    } catch (e) { /* ignora */ }
+    return 'escuro';
+  }
+
+  function aplicaTema(t) {
+    var claro = t === 'claro';
+    document.documentElement.setAttribute('data-theme', claro ? 'light' : 'dark');
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', claro ? '#ffffff' : '#0b0f14');
+    var btn = document.getElementById('tema-toggle');
+    if (btn) {
+      btn.textContent = claro ? '🌙' : '☀️';
+      btn.setAttribute('title', claro ? 'Mudar para tema escuro' : 'Mudar para tema claro');
+      btn.setAttribute('aria-label', btn.getAttribute('title'));
+      btn.setAttribute('aria-pressed', claro ? 'true' : 'false');
+    }
+    return t;
+  }
+
+  function setTema(t) {
+    t = t === 'claro' ? 'claro' : 'escuro';
+    try { window.localStorage.setItem(CHAVE_TEMA, t); } catch (e) { /* ignora */ }
+    return aplicaTema(t);
+  }
+
+  function alternaTema() {
+    return setTema(temaAtual() === 'claro' ? 'escuro' : 'claro');
+  }
+
+  // aplica antes de qualquer render (o <html> já existe quando este script roda)
+  aplicaTema(temaAtual());
 
   var NAV = [
     { chave: 'mes',       href: '/',          titulo: 'Mês',       icone: '📅' },
@@ -470,12 +512,17 @@
           '</button>' +
           '<nav class="nav" id="nav-principal" aria-label="Navegação principal">' + links + '</nav>' +
           '<div class="header-actions">' +
+            '<button type="button" class="btn btn-ghost btn-sm btn-icon" id="tema-toggle">☀️</button>' +
             '<form method="POST" action="/logout">' +
               '<button type="submit" class="btn btn-ghost btn-sm" title="Sair">Sair</button>' +
             '</form>' +
           '</div>' +
         '</div>' +
       '</header>';
+
+    var btnTema = alvo.querySelector('#tema-toggle');
+    if (btnTema) btnTema.addEventListener('click', function () { alternaTema(); });
+    aplicaTema(temaAtual());   // acerta ícone/aria do botão recém-criado
 
     var botao = alvo.querySelector('#nav-toggle');
     var nav = alvo.querySelector('#nav-principal');
@@ -539,6 +586,9 @@
     waUrl: waUrl,
 
     mount: mount,
+    tema: temaAtual,
+    setTema: setTema,
+    alternaTema: alternaTema,
     mesAtual: mesAtual,
     setMes: setMes,
 
