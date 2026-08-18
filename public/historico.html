@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Histórico</title>
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/app.css?v=3.1">
   <style>
     /* --- específico da página de histórico --- */
     .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -42,12 +42,14 @@
     .chip{width:11px;height:11px;border-radius:3px;display:inline-block}
 
     /* --- cartões por casa (um cartão por casa, no lugar da tabela) --- */
-    .casas-grid{display:grid;gap:var(--gap);grid-template-columns:1fr}
-    @media (min-width:700px){.casas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media (min-width:1080px){.casas-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    /* Sempre 2 por linha: casa 1 e 2, depois 3 e 4, e assim por diante.
+       minmax(0,1fr) impede o conteúdo de estourar a coluna — por isso nunca
+       aparece barra de rolagem horizontal, nem no celular. */
+    .casas-grid{display:grid;gap:var(--gap);grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
 
     .hc{display:flex;flex-direction:column}
     .hc .card-body{padding:2px var(--pad)}
+    .hc .card-foot{margin-top:auto}          /* rodapé colado embaixo */
     .hc-casa{font-size:1.05rem;font-weight:800;letter-spacing:-.01em}
     .hc-nome{font-size:.95rem;font-weight:700;color:var(--txt)}
     .hc-sub{font-size:.78rem;color:var(--txt-mute)}
@@ -55,10 +57,12 @@
     .hc-linha{display:flex;align-items:center;justify-content:space-between;gap:12px;
       min-height:42px;padding:8px 0;border-bottom:1px solid var(--line)}
     .hc-linha:last-child{border-bottom:0}
+    .hc-linha>*{min-width:0}
     .hc-rot{display:inline-flex;align-items:center;gap:8px;min-width:0;
       font-size:.88rem;font-weight:650;color:var(--txt-dim)}
     .hc-rot .chip{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
-    .hc-val{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700}
+    .hc-val{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;
+      overflow-wrap:anywhere}
     .hc-linha.is-zero .hc-rot,.hc-linha.is-zero .hc-val{color:var(--txt-mute);font-weight:600}
 
     .hc-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -67,6 +71,27 @@
     .hc-foot .money-lg{font-size:1.24rem}
     .hc-pagos{text-align:right;font-size:.8rem;font-variant-numeric:tabular-nums;line-height:1.5}
     .hc-vaga{opacity:.6}
+
+    /* Coluna estreita (2 cartões num celular): rótulo em cima, valor embaixo.
+       Assim nada é cortado e nada empurra a largura. */
+    @media (max-width:680px){
+      .casas-grid{gap:10px}
+      .hc .card-head,.hc .card-foot{padding:10px 11px}
+      .hc .card-body{padding:0 11px}
+      .hc-casa{font-size:.95rem}
+      .hc-nome{font-size:.85rem}
+      .hc-sub{font-size:.7rem}
+      .hc-linha{flex-direction:column;align-items:stretch;gap:0;min-height:0;padding:7px 0}
+      .hc-rot{font-size:.75rem;gap:5px}
+      .hc-rot .chip{width:7px;height:7px}
+      .hc-val{text-align:left;font-size:.88rem}
+      .hc-foot{flex-direction:column;align-items:stretch;gap:6px}
+      .hc-foot .money-lg{font-size:1.05rem}
+      .hc-foot .hc-tot-lbl{font-size:.64rem;letter-spacing:.05em}
+      .hc-pagos{text-align:left;font-size:.72rem}
+      .hc .badge{font-size:.64rem;padding:2px 6px}
+      .hc .item-pago{font-size:.66rem}
+    }
 
     .item-pago{display:block;font-size:.72rem;color:var(--txt-mute);margin-top:2px}
     .contas-linha{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
@@ -81,7 +106,6 @@
       .no-print{display:none !important}
       .print-only{display:block;margin-bottom:14px}
       .print-only h2{margin:0 0 2px;font-size:18pt}
-      .casas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       .hc{break-inside:avoid;page-break-inside:avoid}
       .chart .bar-track{border:1px solid #999}
       .bar-seg{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -110,7 +134,7 @@
     <div id="painel"><div class="skeleton" style="height:220px"></div></div>
   </main>
 
-  <script src="/js/core.js"></script>
+  <script src="/js/core.js?v=3.1"></script>
   <script>
   (function () {
     App.mount('historico');

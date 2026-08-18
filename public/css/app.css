@@ -50,7 +50,7 @@
   /* superfícies derivadas (hover, sobreposições) — trocadas no tema claro */
   --line-2:#33415a;
   --card-3:#212c3b;
-  --on-brand:var(--on-brand);
+  --on-brand:#04170f;
   --tint:rgba(255,255,255,.015);
   --tint-2:rgba(255,255,255,.022);
   --sink:rgba(0,0,0,.16);

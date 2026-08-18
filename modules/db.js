@@ -128,27 +128,6 @@ if (totalCasas === 0) {
   `);
   const seed = db.transaction((casas) => { for (const c of casas) ins.run(c); });
   seed([
-    { numero: 1, inquilino: 'Vicente',   aluguel: 350, relogio: 1, observacoes: null },
-    { numero: 2, inquilino: 'Marcelo',   aluguel: 400, relogio: 1, observacoes: null },
-    { numero: 3, inquilino: 'Micaely',   aluguel: 350, relogio: 1, observacoes: null },
-    { numero: 4, inquilino: '',          aluguel: 400, relogio: 2, observacoes: null },
-    { numero: 5, inquilino: 'Claudio',   aluguel: 500, relogio: 2, observacoes: null },
-    { numero: 6, inquilino: 'Cleberson', aluguel: 350, relogio: 2, observacoes: 'Estoque' },
-    { numero: 7, inquilino: 'Erivan',    aluguel: 500, relogio: 2, observacoes: null },
-  ]);
-  log('db: seed de casas aplicado (7 casas)');
-}
-
-// ── Seed de regras (só se a tabela estiver vazia) ────────────────
-
-const totalRegras = db.prepare('SELECT COUNT(*) AS n FROM regras').get().n;
-if (totalRegras === 0) {
-  const ins = db.prepare(`
-    INSERT INTO regras (ordem, categoria, titulo, texto, ativa)
-    VALUES (@ordem, @categoria, @titulo, @texto, 1)
-  `);
-  const seed = db.transaction((regras) => { for (const r of regras) ins.run(r); });
-  seed([
     { ordem: 1,  categoria: 'seguranca',   titulo: 'Silêncio das 22h às 7h',
       texto: 'Som, TV e conversa em volume baixo depois das 22h. Domingo e feriado, silêncio a partir das 21h.' },
     { ordem: 2,  categoria: 'convivencia', titulo: 'Festa só combinando antes',
@@ -159,28 +138,26 @@ if (totalRegras === 0) {
       texto: 'São duas contas: um relógio atende as casas 1, 2 e 3 e o outro as casas 4, 5, 6 e 7. O valor é dividido entre as casas ocupadas daquele relógio.' },
     { ordem: 5,  categoria: 'contas',      titulo: 'Pagar até a data combinada',
       texto: 'O aluguel e as contas têm data de vencimento informada na mensagem do mês. Se for atrasar, avise antes — atraso sem aviso complica pra todo mundo.' },
-    { ordem: 6,  categoria: 'manutencao',  titulo: 'Avisar vazamento no mesmo dia',
-      texto: 'Torneira pingando, cano vazando, lâmpada da área comum queimada: avise no mesmo dia. Água e luz desperdiçadas entram na conta de todos.' },
+    { ordem: 6,  categoria: 'limpeza',     titulo: 'Manter o ambiente limpo',
+      texto: 'Quintal, corredor, área comum e lavanderia sempre limpos. Usou, limpou. Sujou, limpou na hora — ninguém limpa a bagunça do outro.' },
     { ordem: 7,  categoria: 'limpeza',     titulo: 'Cada um cuida da sua frente',
       texto: 'Varrer e manter limpa a área na frente da sua casa é responsabilidade do morador.' },
     { ordem: 8,  categoria: 'limpeza',     titulo: 'Lixo só em saco fechado',
       texto: 'Nada de sacola solta no chão do quintal. Lixo sempre fechado e na lixeira, senão atrai rato, barata e bicho.' },
-    { ordem: 9,  categoria: 'convivencia', titulo: 'Área comum e varal são de todos',
+    { ordem: 9,  categoria: 'seguranca',   titulo: 'Nada de objetos no corredor',
+      texto: 'O corredor e a passagem do quintal ficam sempre livres. Não deixe móvel, entulho, bicicleta, caixa, material de obra nem nada parado ali — é passagem de todo mundo e saída de emergência.' },
+    { ordem: 10, categoria: 'convivencia', titulo: 'Área comum e varal são de todos',
       texto: 'Use e libere. Não deixe roupa esquecida no varal por dias nem ocupe a área comum por tempo demais.' },
-    { ordem: 10, categoria: 'seguranca',   titulo: 'Passagem sempre livre',
-      texto: 'Não deixe móvel, entulho, bicicleta ou material de obra no corredor e na passagem do quintal.' },
-    { ordem: 11, categoria: 'animais',     titulo: 'Animal só com autorização',
-      texto: 'Cachorro e gato só com combinação prévia, sempre na coleira na área comum, e o dono recolhe as fezes na hora.' },
-    { ordem: 12, categoria: 'convivencia', titulo: 'Visita é responsabilidade do morador',
+    { ordem: 11, categoria: 'animais',     titulo: 'Animais são proibidos',
+      texto: 'Não é permitido ter animal nas casas. A única exceção é com autorização do dono da casa, combinada antes. Sem essa autorização, não pode — nem "por uns dias", nem animal de visita.' },
+    { ordem: 12, categoria: 'animais',     titulo: 'Cuidados com o animal autorizado',
+      texto: 'Se o dono da casa autorizou, o morador é o único responsável pelo animal: na coleira sempre que sair da casa, nunca solto no quintal, fezes recolhidas na hora, comida e água só dentro da casa (ração no quintal atrai bicho), vacina em dia, e latido ou barulho controlado — principalmente das 22h às 7h. Qualquer estrago que o animal fizer é o morador quem paga, e a autorização pode ser cancelada se as combinações não forem cumpridas.' },
+    { ordem: 13, categoria: 'convivencia', titulo: 'Visita é responsabilidade do morador',
       texto: 'Visitas são bem-vindas, mas quem responde por elas é o morador. Hóspede por mais de 7 dias precisa ser combinado.' },
-    { ordem: 13, categoria: 'seguranca',   titulo: 'Nada de gambiarra elétrica nem fogo',
+    { ordem: 14, categoria: 'seguranca',   titulo: 'Nada de gambiarra elétrica nem fogo',
       texto: 'Proibido puxar energia de outra casa, fazer ligação improvisada ou acender fogueira/churrasqueira sem combinar antes.' },
-    { ordem: 14, categoria: 'veiculos',    titulo: 'Respeite as vagas',
-      texto: 'Estacione só na vaga combinada e nunca bloqueie a saída de outro morador ou o portão.' },
-    { ordem: 15, categoria: 'saida',       titulo: 'Saída avisada com 30 dias',
-      texto: 'Quem for desocupar a casa avisa com 30 dias de antecedência, entrega a casa limpa e com todas as contas quitadas.' },
   ]);
-  log('db: seed de regras aplicado (15 regras)');
+  log('db: seed de regras aplicado (14 regras)');
 }
 
 log(`db: quintal.db pronto em ${DB_PATH}`);

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Casas</title>
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/app.css?v=3.1">
   <style>
     /* regras específicas desta página — tudo com os tokens do design system */
     /* 2 colunas só quando cabe de verdade: cada card tem um formulário inteiro dentro */
@@ -49,7 +49,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js"></script>
+  <script src="/js/core.js?v=3.1"></script>
   <script>
   (function () {
     App.mount('casas');

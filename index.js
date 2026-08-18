@@ -219,8 +219,15 @@ for (const [rota, arquivo] of Object.entries(PAGINAS)) {
 }
 
 // Assets (o conteúdo é genérico; o que é sensível vive só na API)
-app.use('/css', express.static(path.join(PUBLIC_DIR, 'css')));
-app.use('/js',  express.static(path.join(PUBLIC_DIR, 'js')));
+// no-cache = o navegador sempre revalida (ETag devolve 304, é barato).
+// Sem isso o browser segurava CSS/JS antigos depois de um deploy.
+const ESTATICO = {
+  etag: true,
+  maxAge: 0,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+};
+app.use('/css', express.static(path.join(PUBLIC_DIR, 'css'), ESTATICO));
+app.use('/js',  express.static(path.join(PUBLIC_DIR, 'js'), ESTATICO));
 
 app.use((req, res) => res.status(404).send('Não encontrado'));
 
