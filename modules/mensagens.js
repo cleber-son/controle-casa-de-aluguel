@@ -225,8 +225,11 @@ const ITENS_CONTAS_MSG = [
   { chave: 'outros', emoji: '📦', nome: 'Outros' },
 ];
 
-// [{ ano, mes, label, itens:[{nome,valor}], subtotal }] — só meses com saldo
-function mesesEmAberto(casaId) {
+const ITEM_ALUGUEL_MSG = { chave: 'aluguel', emoji: '🔑', nome: 'Aluguel' };
+
+// [{ ano, mes, label, itens:[{nome,valor}], subtotal, contas, aluguel }]
+// — só meses com saldo. `comAluguel` decide se o aluguel entra na conta.
+function mesesEmAberto(casaId, comAluguel) {
   const ini = calc.INICIO_PERIODO;
   const rows = db.prepare(`
     SELECT l.*, m.ano, m.mes
@@ -235,17 +238,22 @@ function mesesEmAberto(casaId) {
     ORDER BY m.ano, m.mes
   `).all(casaId, ini.ano * 100 + ini.mes);
 
+  const defs = comAluguel ? ITENS_CONTAS_MSG.concat([ITEM_ALUGUEL_MSG]) : ITENS_CONTAS_MSG;
+
   const out = [];
   for (const l of rows) {
     if (l.vazia) continue;
     const itens = [];
-    for (const def of ITENS_CONTAS_MSG) {
+    let contas = 0;
+    let aluguel = 0;
+    for (const def of defs) {
       const valor = calc.round2(l[`${def.chave}_valor`]);
       if (!(valor > 0) || l[`${def.chave}_pago`]) continue;
       const nome = def.chave === 'outros'
         ? (String(l.outros_descricao || '').trim() || 'Outros')
         : def.nome;
-      itens.push({ emoji: def.emoji, nome, valor });
+      itens.push({ chave: def.chave, emoji: def.emoji, nome, valor });
+      if (def.chave === 'aluguel') aluguel += valor; else contas += valor;
     }
     if (!itens.length) continue;
     out.push({
@@ -253,19 +261,22 @@ function mesesEmAberto(casaId) {
       mes: l.mes,
       label: calc.labelMes(l.ano, l.mes),
       itens,
-      subtotal: calc.round2(itens.reduce((s, i) => s + i.valor, 0)),
+      contas: calc.round2(contas),
+      aluguel: calc.round2(aluguel),
+      subtotal: calc.round2(contas + aluguel),
     });
   }
   return out;
 }
 
 // Resumo de todas as casas, para montar a lista de seleção na tela.
-function listarPendencias() {
+function listarPendencias(opcoes) {
+  const comAluguel = !opcoes || opcoes.comAluguel !== false;
   const casas = db.prepare('SELECT * FROM casas ORDER BY numero').all();
   const itens = casas.map((c) => {
-    const meses = mesesEmAberto(c.id);
+    const meses = mesesEmAberto(c.id, comAluguel);
     const tel = normalizarTelefone(c.telefone);
-    const msg = gerarMensagemPendencias(c.id);
+    const msg = gerarMensagemPendencias(c.id, { comAluguel });
     return {
       casa_id: c.id,
       numero: c.numero,
@@ -274,9 +285,12 @@ function listarPendencias() {
       telefone: tel,
       tem_telefone: !!tel,
       qtd_meses: meses.length,
-      meses: meses.map((m) => ({ label: m.label, valor: m.subtotal })),
+      meses: meses.map((m) => ({ label: m.label, valor: m.subtotal,
+        contas: m.contas, aluguel: m.aluguel })),
       mes_mais_antigo: meses.length ? meses[0].label : null,
       total_aberto: calc.round2(meses.reduce((s, m) => s + m.subtotal, 0)),
+      contas_aberto: calc.round2(meses.reduce((s, m) => s + m.contas, 0)),
+      aluguel_aberto: calc.round2(meses.reduce((s, m) => s + m.aluguel, 0)),
       // texto já montado: a tela de devedores abre pronta, sem uma volta por casa
       texto: msg.texto,
       wa_url: waUrl(tel, msg.texto),
@@ -296,18 +310,22 @@ function listarPendencias() {
       em_dia: emDia.length,
       sem_telefone: devedores.filter((c) => !c.tem_telefone).length,
       total_aberto: calc.round2(devedores.reduce((s, c) => s + c.total_aberto, 0)),
+      contas_aberto: calc.round2(devedores.reduce((s, c) => s + c.contas_aberto, 0)),
+      aluguel_aberto: calc.round2(devedores.reduce((s, c) => s + c.aluguel_aberto, 0)),
+      com_aluguel: comAluguel,
       pior_mes: devedores.reduce((acc, c) => acc || c.mes_mais_antigo, null),
     },
   };
 }
 
-function gerarMensagemPendencias(casaId) {
+function gerarMensagemPendencias(casaId, opcoes) {
+  const comAluguel = !opcoes || opcoes.comAluguel !== false;
   const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(casaId);
   if (!casa) { const e = new Error('Casa não encontrada'); e.statusCode = 404; throw e; }
 
   const casaStr = String(casa.numero).padStart(2, '0');
   const nome = casa.inquilino || 'morador';
-  const meses = mesesEmAberto(casa.id);
+  const meses = mesesEmAberto(casa.id, comAluguel);
   const cab = `🏠 *Casa ${casaStr} — ${nome}*`;
 
   if (!meses.length) {
@@ -319,19 +337,28 @@ function gerarMensagemPendencias(casaId) {
   }
 
   const total = calc.round2(meses.reduce((s, m) => s + m.subtotal, 0));
+  const totalContas = calc.round2(meses.reduce((s, m) => s + m.contas, 0));
+  const totalAluguel = calc.round2(meses.reduce((s, m) => s + m.aluguel, 0));
+
   const blocos = meses.map((m) => {
     const linhas = m.itens.map((i) => `${i.emoji} ${i.nome}: ${moeda(i.valor)}`).join('\n');
     const sub = m.itens.length > 1 ? `\n_subtotal: ${moeda(m.subtotal)}_` : '';
     return `📅 *${m.label}*\n${linhas}${sub}`;
   }).join('\n\n');
 
-  const intro = meses.length === 1
-    ? 'Contas em aberto:'
-    : `Contas em aberto (${meses.length} meses):`;
+  const oQue = comAluguel ? 'Em aberto' : 'Contas em aberto';
+  const intro = meses.length === 1 ? `${oQue}:` : `${oQue} (${meses.length} meses):`;
+
+  // com aluguel na conta, vale repetir a quebra no fim — são cobranças separadas
+  const quebra = (comAluguel && totalContas > 0 && totalAluguel > 0)
+    ? `\n_Contas ${moeda(totalContas)} · Aluguel ${moeda(totalAluguel)}_`
+    : '';
 
   return {
-    texto: `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL EM ABERTO: ${moeda(total)}*\n\nQualquer dúvida é só chamar 🙏`,
+    texto: `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL EM ABERTO: ${moeda(total)}*${quebra}\n\nQualquer dúvida é só chamar 🙏`,
     total_aberto: total,
+    contas_aberto: totalContas,
+    aluguel_aberto: totalAluguel,
     qtd_meses: meses.length,
   };
 }

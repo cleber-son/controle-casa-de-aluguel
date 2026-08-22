@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Devedores</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.9">
+  <link rel="stylesheet" href="/css/app.css?v=3.10">
   <style>
     /* --- específico da tela de devedores --- */
     .dv-topo{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -27,6 +27,16 @@
       border:1px solid var(--line);border-radius:999px;background:var(--card-2);font-size:.78rem}
     .dv-mes b{font-variant-numeric:tabular-nums}
 
+    .dv-opcoes{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;
+      padding-top:12px;border-top:1px solid var(--line)}
+
+    .dv-quebra{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:.84rem;
+      color:var(--txt-dim)}
+    .dv-quebra span{display:inline-flex;align-items:center;gap:6px}
+    .dv-pt{width:9px;height:9px;border-radius:50%;display:inline-block}
+    .dv-pt-contas{background:var(--agua)}
+    .dv-pt-aluguel{background:var(--aluguel)}
+
     .dv-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
     .dv-acoes .btn{flex:1 1 150px}
 
@@ -46,8 +56,9 @@
       <div>
         <h1>Devedores</h1>
         <p class="muted small" style="margin:4px 0 0;max-width:62ch">
-          Quem está com conta em aberto, somando todos os meses. O texto de cobrança já vem
-          pronto — é só copiar ou abrir o WhatsApp. O aluguel não entra aqui: só água, luz e outros.
+          Quem está com algo em aberto, somando todos os meses. O texto de cobrança já vem
+          pronto — é só copiar ou abrir o WhatsApp. Contas e aluguel aparecem separados,
+          e dá para tirar o aluguel da cobrança no botão abaixo.
         </p>
       </div>
       <div class="spacer" style="flex:1"></div>
@@ -63,7 +74,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js?v=3.9"></script>
+  <script src="/js/core.js?v=3.10"></script>
   <script>
   (function () {
     'use strict';
@@ -71,6 +82,15 @@
     App.mount('devedores');
 
     var E = App.escapeHtml;
+    var CHAVE_ALUGUEL = 'quintal.devedores.aluguel';
+
+    function comAluguel() {
+      try { return localStorage.getItem(CHAVE_ALUGUEL) !== '0'; } catch (e) { return true; }
+    }
+    function setComAluguel(v) {
+      try { localStorage.setItem(CHAVE_ALUGUEL, v ? '1' : '0'); } catch (e) { /* ignora */ }
+    }
+
     var S = { dados: null, abertos: {} };   // abertos: casa_id -> texto expandido
 
     var elResumo = document.getElementById('resumo');
@@ -78,7 +98,7 @@
 
     function carregar() {
       elLista.innerHTML = '<div class="skeleton dv-sk"></div><div class="skeleton dv-sk"></div>';
-      return App.api('/pendencias').then(function (d) {
+      return App.api('/pendencias?aluguel=' + (comAluguel() ? '1' : '0')).then(function (d) {
         S.dados = d;
         render();
       }).catch(function (e) {
@@ -102,22 +122,39 @@
       var emDia = d.em_dia || [];
       var r = d.resumo || {};
 
+      var incl = comAluguel();
       elResumo.innerHTML = '<div class="card ' + (devedores.length ? '' : 'card-accent-brand') +
-        '" style="margin-bottom:14px"><div class="card-body"><div class="stat-row grid grid-4">' +
+        '" style="margin-bottom:14px"><div class="card-body">' +
+        '<div class="stat-row grid grid-4">' +
         stat('Devendo', String(r.devendo || 0), (r.em_dia || 0) + ' em dia',
           devedores.length ? 'is-open' : 'is-ok') +
-        stat('Total em aberto', App.money(r.total_aberto), 'água, luz e outros',
+        stat('Total em aberto', App.money(r.total_aberto),
+          incl ? 'contas + aluguel' : 'só água, luz e outros',
           devedores.length ? 'is-open' : 'is-ok') +
-        stat('Atraso mais antigo', r.pior_mes ? E(r.pior_mes) : '—',
-          r.pior_mes ? 'mês mais antigo em aberto' : 'nada atrasado') +
-        stat('Sem telefone', String(r.sem_telefone || 0),
-          (r.sem_telefone ? 'dá para copiar o texto' : 'todos com WhatsApp')) +
-        '</div></div></div>';
+        stat('Contas', App.money(r.contas_aberto), 'água, luz e outros', 'is-agua') +
+        (incl
+          ? stat('Aluguel', App.money(r.aluguel_aberto), 'cobrado à parte', 'is-aluguel')
+          : stat('Atraso mais antigo', r.pior_mes ? E(r.pior_mes) : '—',
+              r.pior_mes ? 'mês mais antigo' : 'nada atrasado')) +
+        '</div>' +
+        '<div class="dv-opcoes">' +
+          '<label class="switch"><input type="checkbox" id="chk-aluguel"' + (incl ? ' checked' : '') + '>' +
+          '<span>Incluir o aluguel na cobrança</span></label>' +
+          '<span class="dim small">' +
+            (incl ? 'O texto lista contas e aluguel, separados no total.'
+                  : 'O texto traz só água, luz e outros — o aluguel fica de fora.') +
+          '</span>' +
+          (r.pior_mes && incl ? '<span class="badge badge-warn">mais antigo: ' + E(r.pior_mes) + '</span>' : '') +
+        '</div>' +
+        '</div></div>';
 
       if (!devedores.length) {
         elLista.innerHTML = '<div class="empty"><div class="empty-icon">🎉</div>' +
           '<p class="strong">Ninguém devendo</p>' +
-          '<p class="muted small">Todas as contas de água, luz e outros estão quitadas.</p></div>' +
+          '<p class="muted small">' +
+            (comAluguel() ? 'Contas e aluguel quitados em todos os meses.'
+                          : 'Água, luz e outros quitados em todos os meses.') +
+          '</p></div>' +
           (emDia.length ? blocoEmDia(emDia) : '');
         return;
       }
@@ -137,8 +174,20 @@
     function cardDevedor(c) {
       var aberto = !!S.abertos[c.casa_id];
       var meses = (c.meses || []).map(function (m) {
-        return '<span class="dv-mes">' + E(m.label) + ' <b>' + App.money(m.valor) + '</b></span>';
+        var det = [];
+        if (m.contas > 0) det.push('contas ' + App.money(m.contas));
+        if (m.aluguel > 0) det.push('aluguel ' + App.money(m.aluguel));
+        return '<span class="dv-mes" title="' + E(det.join(' · ')) + '">' +
+          E(m.label) + ' <b>' + App.money(m.valor) + '</b></span>';
       }).join('');
+
+      var quebra = '';
+      if (Number(c.aluguel_aberto) > 0 && Number(c.contas_aberto) > 0) {
+        quebra = '<div class="dv-quebra">' +
+          '<span><i class="dv-pt dv-pt-contas"></i>contas <b class="money">' + App.money(c.contas_aberto) + '</b></span>' +
+          '<span><i class="dv-pt dv-pt-aluguel"></i>aluguel <b class="money">' + App.money(c.aluguel_aberto) + '</b></span>' +
+          '</div>';
+      }
 
       return '<section class="card dv-card" data-casa="' + c.casa_id + '">' +
         '<div class="card-body">' +
@@ -160,6 +209,7 @@
             '</div>' +
           '</div>' +
 
+          quebra +
           '<div class="dv-meses">' + meses + '</div>' +
 
           '<div class="dv-acoes">' +
@@ -223,6 +273,12 @@
         App.copiar(txt);
         return;
       }
+    });
+
+    document.addEventListener('change', function (ev) {
+      if (!ev.target || ev.target.id !== 'chk-aluguel') return;
+      setComAluguel(ev.target.checked);
+      carregar();
     });
 
     document.getElementById('btn-atualizar').addEventListener('click', carregar);

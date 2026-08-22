@@ -444,8 +444,14 @@ router.post('/mensagens/teste', h((req, res) => {
 
 // ── Cobrança consolidada por inquilino ───────────────────────────
 
+// ?aluguel=0 devolve só as contas (água, luz e outros)
+function comAluguelDaQuery(req) {
+  const v = String((req.query || {}).aluguel ?? '').trim();
+  return !(v === '0' || v === 'false' || v === 'nao' || v === 'não');
+}
+
 router.get('/pendencias', h((req, res) => {
-  res.json(msgs.listarPendencias());
+  res.json(msgs.listarPendencias({ comAluguel: comAluguelDaQuery(req) }));
 }));
 
 router.get('/pendencias/:casa_id', h((req, res) => {
@@ -453,7 +459,7 @@ router.get('/pendencias/:casa_id', h((req, res) => {
   if (Number.isNaN(casaId)) throw new Error('Casa inválida');
   const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(casaId);
   if (!casa) return falha(res, 404, 'Casa não encontrada');
-  const m = msgs.gerarMensagemPendencias(casaId);
+  const m = msgs.gerarMensagemPendencias(casaId, { comAluguel: comAluguelDaQuery(req) });
   const tel = msgs.normalizarTelefone(casa.telefone);
   res.json({
     casa_id: casa.id,
@@ -464,6 +470,8 @@ router.get('/pendencias/:casa_id', h((req, res) => {
     tem_telefone: !!tel,
     texto: m.texto,
     total_aberto: m.total_aberto,
+    contas_aberto: m.contas_aberto,
+    aluguel_aberto: m.aluguel_aberto,
     qtd_meses: m.qtd_meses,
     wa_url: msgs.waUrl(tel, m.texto),
   });
