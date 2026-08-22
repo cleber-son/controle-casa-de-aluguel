@@ -60,6 +60,7 @@
     { chave: 'casas',     href: '/casas',     titulo: 'Casas',     icone: '🏠' },
     { chave: 'mes',       href: '/',          titulo: 'Mês',       icone: '📅' },
     { chave: 'whatsapp',  href: '/whatsapp',  titulo: 'WhatsApp',  icone: '💬' },
+    { chave: 'devedores', href: '/devedores', titulo: 'Devedores', icone: '⚠️' },
     { chave: 'historico', href: '/historico', titulo: 'Histórico', icone: '📊' },
     { chave: 'repasse',   href: '/repasse',   titulo: 'Repasse',   icone: '🤝' },
     { chave: 'regras',    href: '/regras',    titulo: 'Regras',    icone: '📋' }

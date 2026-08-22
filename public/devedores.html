@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
+  <title>Quintal — Devedores</title>
+  <link rel="stylesheet" href="/css/app.css?v=3.9">
+  <style>
+    /* --- específico da tela de devedores --- */
+    .dv-topo{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .dv-topo h1{margin:0;font-size:1.5rem}
+
+    .dv-card{margin-bottom:12px}
+    .dv-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .dv-quem{flex:1 1 200px;min-width:0}
+    .dv-nome{font-size:1.1rem;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .dv-sub{font-size:.8rem;color:var(--txt-dim);margin-top:2px}
+    .dv-valor{text-align:right;font-variant-numeric:tabular-nums}
+    .dv-valor b{font-size:1.35rem;display:block;line-height:1.2}
+    .dv-valor .dv-l{font-size:.72rem;font-weight:800;letter-spacing:.07em;
+      text-transform:uppercase;color:var(--txt-mute)}
+
+    .dv-meses{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    .dv-mes{display:inline-flex;align-items:baseline;gap:6px;padding:4px 9px;
+      border:1px solid var(--line);border-radius:999px;background:var(--card-2);font-size:.78rem}
+    .dv-mes b{font-variant-numeric:tabular-nums}
+
+    .dv-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .dv-acoes .btn{flex:1 1 150px}
+
+    .dv-texto{white-space:pre-wrap;word-break:break-word;margin-top:10px}
+    .dv-oculto{display:none}
+
+    .dv-emdia{opacity:.75}
+    .dv-sep{border:0;border-top:1px solid var(--line);margin:24px 0 14px}
+    .dv-sk{height:150px;border-radius:var(--r);margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div class="dv-topo no-print">
+      <div>
+        <h1>Devedores</h1>
+        <p class="muted small" style="margin:4px 0 0;max-width:62ch">
+          Quem está com conta em aberto, somando todos os meses. O texto de cobrança já vem
+          pronto — é só copiar ou abrir o WhatsApp. O aluguel não entra aqui: só água, luz e outros.
+        </p>
+      </div>
+      <div class="spacer" style="flex:1"></div>
+      <div class="header-actions">
+        <button class="btn btn-ghost btn-sm" id="btn-atualizar" type="button">↻ Atualizar</button>
+      </div>
+    </div>
+
+    <div id="resumo"></div>
+    <div id="lista">
+      <div class="skeleton dv-sk"></div>
+      <div class="skeleton dv-sk"></div>
+    </div>
+  </main>
+
+  <script src="/js/core.js?v=3.9"></script>
+  <script>
+  (function () {
+    'use strict';
+
+    App.mount('devedores');
+
+    var E = App.escapeHtml;
+    var S = { dados: null, abertos: {} };   // abertos: casa_id -> texto expandido
+
+    var elResumo = document.getElementById('resumo');
+    var elLista  = document.getElementById('lista');
+
+    function carregar() {
+      elLista.innerHTML = '<div class="skeleton dv-sk"></div><div class="skeleton dv-sk"></div>';
+      return App.api('/pendencias').then(function (d) {
+        S.dados = d;
+        render();
+      }).catch(function (e) {
+        elResumo.innerHTML = '';
+        elLista.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div>' +
+          '<p class="strong">Não foi possível carregar os devedores.</p>' +
+          '<p class="muted small">' + E((e && e.message) || '') + '</p>' +
+          '<button class="btn btn-primary" data-acao="recarregar" type="button">Tentar de novo</button></div>';
+      });
+    }
+
+    function stat(label, valor, hint, cls) {
+      return '<div class="stat ' + (cls || '') + '"><div class="stat-label">' + E(label) + '</div>' +
+        '<div class="stat-value">' + valor + '</div>' +
+        (hint ? '<div class="stat-hint">' + E(hint) + '</div>' : '') + '</div>';
+    }
+
+    function render() {
+      var d = S.dados || {};
+      var devedores = d.devedores || [];
+      var emDia = d.em_dia || [];
+      var r = d.resumo || {};
+
+      elResumo.innerHTML = '<div class="card ' + (devedores.length ? '' : 'card-accent-brand') +
+        '" style="margin-bottom:14px"><div class="card-body"><div class="stat-row grid grid-4">' +
+        stat('Devendo', String(r.devendo || 0), (r.em_dia || 0) + ' em dia',
+          devedores.length ? 'is-open' : 'is-ok') +
+        stat('Total em aberto', App.money(r.total_aberto), 'água, luz e outros',
+          devedores.length ? 'is-open' : 'is-ok') +
+        stat('Atraso mais antigo', r.pior_mes ? E(r.pior_mes) : '—',
+          r.pior_mes ? 'mês mais antigo em aberto' : 'nada atrasado') +
+        stat('Sem telefone', String(r.sem_telefone || 0),
+          (r.sem_telefone ? 'dá para copiar o texto' : 'todos com WhatsApp')) +
+        '</div></div></div>';
+
+      if (!devedores.length) {
+        elLista.innerHTML = '<div class="empty"><div class="empty-icon">🎉</div>' +
+          '<p class="strong">Ninguém devendo</p>' +
+          '<p class="muted small">Todas as contas de água, luz e outros estão quitadas.</p></div>' +
+          (emDia.length ? blocoEmDia(emDia) : '');
+        return;
+      }
+
+      var h = '<div class="row wrap" style="margin-bottom:10px;align-items:center">' +
+        '<span class="m-sec-tit strong">' + devedores.length +
+        (devedores.length === 1 ? ' inquilino em aberto' : ' inquilinos em aberto') + '</span>' +
+        '<span class="spacer"></span>' +
+        '<button class="btn btn-outline btn-sm" data-acao="copiar-todos" type="button">📋 Copiar todas as cobranças</button>' +
+        '</div>';
+
+      devedores.forEach(function (c) { h += cardDevedor(c); });
+      if (emDia.length) h += blocoEmDia(emDia);
+      elLista.innerHTML = h;
+    }
+
+    function cardDevedor(c) {
+      var aberto = !!S.abertos[c.casa_id];
+      var meses = (c.meses || []).map(function (m) {
+        return '<span class="dv-mes">' + E(m.label) + ' <b>' + App.money(m.valor) + '</b></span>';
+      }).join('');
+
+      return '<section class="card dv-card" data-casa="' + c.casa_id + '">' +
+        '<div class="card-body">' +
+          '<div class="dv-head">' +
+            '<div class="dv-quem">' +
+              '<div class="dv-nome">Casa ' + E(c.casa_str) + ' — ' + E(c.inquilino) +
+                '<span class="badge badge-err">' + c.qtd_meses +
+                (c.qtd_meses === 1 ? ' mês' : ' meses') + '</span>' +
+                (c.tem_telefone ? '' : '<span class="badge badge-dim">sem telefone</span>') +
+              '</div>' +
+              '<div class="dv-sub">' +
+                (c.tem_telefone ? '<span class="mono">' + E(c.telefone) + '</span> · ' : '') +
+                'em aberto desde ' + E(c.mes_mais_antigo || '—') +
+              '</div>' +
+            '</div>' +
+            '<div class="dv-valor">' +
+              '<span class="dv-l">Em aberto</span>' +
+              '<b class="money money-open">' + App.money(c.total_aberto) + '</b>' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="dv-meses">' + meses + '</div>' +
+
+          '<div class="dv-acoes">' +
+            '<button class="btn btn-outline" data-acao="copiar" data-casa="' + c.casa_id + '" type="button">📋 Copiar cobrança</button>' +
+            '<a class="btn btn-wa" href="' + E(c.wa_url || '#') + '" target="_blank" rel="noopener">' +
+              (c.tem_telefone ? '💬 Abrir WhatsApp' : '💬 Abrir e escolher contato') + '</a>' +
+            '<button class="btn btn-ghost" data-acao="ver" data-casa="' + c.casa_id + '" type="button">' +
+              (aberto ? 'Ocultar texto' : 'Ver texto') + '</button>' +
+          '</div>' +
+
+          '<div class="wa-bubble dv-texto' + (aberto ? '' : ' dv-oculto') + '">' + E(c.texto) + '</div>' +
+        '</div></section>';
+    }
+
+    function blocoEmDia(lista) {
+      return '<hr class="dv-sep">' +
+        '<div class="card dv-emdia"><div class="card-head"><div>' +
+          '<div class="card-title">Em dia</div>' +
+          '<div class="card-sub">' + lista.length + ' sem nada em aberto</div>' +
+        '</div></div><div class="card-body"><div class="row wrap" style="gap:8px">' +
+        lista.map(function (c) {
+          return '<span class="badge badge-ok">Casa ' + E(c.casa_str) + ' — ' + E(c.inquilino) + '</span>';
+        }).join('') +
+        '</div></div></div>';
+    }
+
+    /* ---------------- ações ---------------- */
+
+    function porId(id) {
+      var lista = (S.dados && S.dados.devedores) || [];
+      for (var i = 0; i < lista.length; i++) if (Number(lista[i].casa_id) === Number(id)) return lista[i];
+      return null;
+    }
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('[data-acao]');
+      if (!btn) return;
+      var acao = btn.getAttribute('data-acao');
+      var id = btn.getAttribute('data-casa');
+
+      if (acao === 'recarregar') { carregar(); return; }
+
+      if (acao === 'ver') {
+        if (S.abertos[id]) delete S.abertos[id]; else S.abertos[id] = true;
+        render();
+        return;
+      }
+
+      if (acao === 'copiar') {
+        var c = porId(id);
+        if (c) App.copiar(c.texto);
+        return;
+      }
+
+      if (acao === 'copiar-todos') {
+        var lista = (S.dados && S.dados.devedores) || [];
+        if (!lista.length) return;
+        // separador visível para colar num bloco de notas e ir mandando um a um
+        var txt = lista.map(function (x) { return x.texto; })
+          .join('\n\n────────────────────\n\n');
+        App.copiar(txt);
+        return;
+      }
+    });
+
+    document.getElementById('btn-atualizar').addEventListener('click', carregar);
+
+    carregar();
+  })();
+  </script>
+</body>
+</html>

@@ -265,6 +265,7 @@ function listarPendencias() {
   const itens = casas.map((c) => {
     const meses = mesesEmAberto(c.id);
     const tel = normalizarTelefone(c.telefone);
+    const msg = gerarMensagemPendencias(c.id);
     return {
       casa_id: c.id,
       numero: c.numero,
@@ -273,16 +274,29 @@ function listarPendencias() {
       telefone: tel,
       tem_telefone: !!tel,
       qtd_meses: meses.length,
-      meses: meses.map((m) => m.label),
+      meses: meses.map((m) => ({ label: m.label, valor: m.subtotal })),
+      mes_mais_antigo: meses.length ? meses[0].label : null,
       total_aberto: calc.round2(meses.reduce((s, m) => s + m.subtotal, 0)),
+      // texto já montado: a tela de devedores abre pronta, sem uma volta por casa
+      texto: msg.texto,
+      wa_url: waUrl(tel, msg.texto),
     };
   }).filter((c) => c.inquilino);
 
+  const devedores = itens.filter((c) => c.total_aberto > 0)
+    .sort((a, b) => b.total_aberto - a.total_aberto);
+  const emDia = itens.filter((c) => c.total_aberto <= 0);
+
   return {
     casas: itens,
+    devedores,
+    em_dia: emDia,
     resumo: {
-      devendo: itens.filter((c) => c.total_aberto > 0).length,
-      total_aberto: calc.round2(itens.reduce((s, c) => s + c.total_aberto, 0)),
+      devendo: devedores.length,
+      em_dia: emDia.length,
+      sem_telefone: devedores.filter((c) => !c.tem_telefone).length,
+      total_aberto: calc.round2(devedores.reduce((s, c) => s + c.total_aberto, 0)),
+      pior_mes: devedores.reduce((acc, c) => acc || c.mes_mais_antigo, null),
     },
   };
 }

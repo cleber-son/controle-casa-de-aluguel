@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Histórico</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.8">
+  <link rel="stylesheet" href="/css/app.css?v=3.9">
   <style>
     /* --- específico da página de histórico --- */
     .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -41,12 +41,13 @@
        .gc-track tem altura fixa; .gc-fill usa % dessa altura (é o que dá a
        proporção entre os meses); dentro do fill, cada .gc-seg usa % do fill. */
     .gc{display:flex;align-items:flex-end;gap:14px;padding:8px 2px 0;overflow-x:auto}
-    .gc-col{flex:1 1 0;min-width:54px;display:flex;flex-direction:column;align-items:center;gap:6px}
+    .gc-col{flex:1 1 0;min-width:44px;display:flex;flex-direction:column;align-items:center;gap:6px}
     .gc-val{font-size:.78rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--txt)}
     .gc-track{width:100%;max-width:66px;height:180px;display:flex;flex-direction:column;
       justify-content:flex-end;background:var(--card-2);border:1px solid var(--line);
       border-radius:var(--r-sm) var(--r-sm) 0 0;overflow:hidden}
-    .gc-fill{width:100%;display:flex;flex-direction:column-reverse;overflow:hidden}
+    .gc-fill{width:100%;display:flex;flex-direction:column-reverse;overflow:hidden;
+      border-radius:var(--r-sm) var(--r-sm) 0 0}
     .gc-seg{width:100%;display:block}
     .gc-base{width:100%;max-width:66px;height:2px;background:var(--line-2);border-radius:2px}
     .gc-lbl{font-size:.76rem;color:var(--txt-dim);white-space:nowrap}
@@ -159,7 +160,7 @@
     <div id="painel"><div class="skeleton" style="height:220px"></div></div>
   </main>
 
-  <script src="/js/core.js?v=3.8"></script>
+  <script src="/js/core.js?v=3.9"></script>
   <script>
   (function () {
     App.mount('historico');
@@ -229,80 +230,78 @@
         (hint ? '<div class="stat-hint">' + E(hint) + '</div>' : '') + '</div>';
     }
 
-    /* ---------------- gráfico das contas ---------------- */
-    /* Barras empilhadas em CSS puro (mesmo padrão da aba "Por casa"):
-       uma barra por mês, na ordem crescente, com água + luz + outros.
-       O aluguel fica de fora — é cobrado à parte — mas aparece como
-       referência no rodapé de cada linha. */
+    /* ---------------- gráficos das contas ---------------- */
+    /* Um gráfico para cada conta: água e luz têm ordens de grandeza e ritmos
+       diferentes, então empilhar as duas escondia a variação da menor. Cada
+       um tem a sua própria escala. */
     function renderGraficoContas(meses) {
-      if (!meses || meses.length < 1) { elGrafico.innerHTML = ''; return; }
+      if (!meses || !meses.length) { elGrafico.innerHTML = ''; return; }
 
-      var max = 0;
-      meses.forEach(function (m) {
-        var v = Number(m.contas_cobrado) || 0;
-        if (v > max) max = v;
+      var temAlgo = meses.some(function (m) {
+        return (Number(m.agua_total) || 0) > 0 || (Number(m.luz_total) || 0) > 0;
       });
-      if (max <= 0) {
+      if (!temAlgo) {
         elGrafico.innerHTML = '<div class="card" style="margin-bottom:14px"><div class="card-head">' +
           '<div><div class="card-title">Evolução das contas</div>' +
-          '<div class="card-sub">água, luz e outros — mês a mês</div></div></div>' +
+          '<div class="card-sub">água e luz, mês a mês</div></div></div>' +
           '<div class="card-body"><div class="empty"><div class="empty-icon">📈</div>' +
-          '<p class="muted small">Nenhuma conta lançada ainda — o gráfico aparece assim que houver valores.</p>' +
+          '<p class="muted small">Nenhuma conta lançada ainda — os gráficos aparecem assim que houver valores.</p>' +
           '</div></div></div>';
         return;
       }
-      var media = meses.reduce(function (s2, m) { return s2 + (Number(m.contas_cobrado) || 0); }, 0) / meses.length;
-      var ultimo = meses[meses.length - 1];
 
-      var h = '<div class="card card-accent-agua" style="margin-bottom:14px">' +
+      elGrafico.innerHTML = '<div class="grid grid-2" style="margin-bottom:14px">' +
+        graficoDe(meses, 'agua', '💧 Água', 'valor da conta de água', 'card-accent-agua') +
+        graficoDe(meses, 'luz', '💡 Luz', 'soma das contas de luz do mês', 'card-accent-luz') +
+        '</div>';
+    }
+
+    // um gráfico de colunas para uma conta só
+    function graficoDe(meses, chave, titulo, sub, acento) {
+      var campo = chave === 'agua' ? 'agua_total' : 'luz_total';
+      var vals = meses.map(function (m) { return Number(m[campo]) || 0; });
+      var max = Math.max.apply(null, vals.concat([0]));
+      var comValor = vals.filter(function (v) { return v > 0; });
+      var media = comValor.length
+        ? comValor.reduce(function (a, b) { return a + b; }, 0) / comValor.length : 0;
+
+      var ultimo = vals[vals.length - 1];
+      var penultimo = vals.length > 1 ? vals[vals.length - 2] : null;
+      var variacao = '';
+      if (penultimo !== null && penultimo > 0 && ultimo > 0) {
+        var dif = ultimo - penultimo;
+        var cls = zero(dif) ? 'delta-flat' : (dif > 0 ? 'delta-up' : 'delta-down');
+        var seta = zero(dif) ? '=' : (dif > 0 ? '▲' : '▼');
+        variacao = '<span class="' + cls + '">' + seta + ' ' + App.money(Math.abs(dif)) +
+          ' (' + (dif >= 0 ? '+' : '−') + App.num(Math.abs(dif / penultimo * 100)) + '%)</span>' +
+          ' <span class="dim">vs. mês anterior</span>';
+      }
+
+      var h = '<div class="card ' + acento + '">' +
         '<div class="card-head"><div>' +
-        '<div class="card-title">Evolução das contas</div>' +
-        '<div class="card-sub">água, luz e outros — mês a mês (aluguel não entra)</div></div>' +
+        '<div class="card-title">' + E(titulo) + '</div>' +
+        '<div class="card-sub">' + E(sub) + '</div></div>' +
         '<div class="right gc-media">média ' + App.money(media) + '</div></div>' +
         '<div class="card-body"><div class="gc">';
 
-      // Uma coluna por mês. A altura de cada faixa é proporcional ao maior mês,
-      // então dá para comparar os meses de bate-pronto.
       meses.forEach(function (m) {
-        var total = Number(m.contas_cobrado) || 0;
-        var alturaPct = max > 0 ? (total / max) * 100 : 0;
-        var dica = 'Água ' + App.money(m.agua_cobrado) + ' · Luz ' + App.money(m.luz_cobrado) +
-                   ' · Outros ' + App.money(m.outros_cobrado);
-        h += '<div class="gc-col' + (total > 0 && total >= max ? ' is-alto' : '') + '">' +
-          '<div class="gc-val">' + (total > 0 ? App.money(total) : '—') + '</div>' +
-          '<div class="gc-track" role="img"' +
-            ' aria-label="' + E(m.label + ': contas ' + App.money(total) + '. ' + dica) + '"' +
-            ' title="' + E(m.label + ' — ' + dica) + '">' +
-            '<div class="gc-fill" style="height:' + (total > 0 ? Math.max(alturaPct, 3).toFixed(2) : '0') + '%">' +
-              colSeg('agua', m.agua_cobrado, total) +
-              colSeg('luz', m.luz_cobrado, total) +
-              colSeg('outros', m.outros_cobrado, total) +
-            '</div>' +
+        var v = Number(m[campo]) || 0;
+        var alt = max > 0 ? (v / max) * 100 : 0;
+        h += '<div class="gc-col' + (v > 0 && v >= max ? ' is-alto' : '') + '">' +
+          '<div class="gc-val">' + (v > 0 ? App.money(v) : '—') + '</div>' +
+          '<div class="gc-track" role="img" aria-label="' + E(m.label + ': ' + App.money(v)) + '"' +
+            ' title="' + E(m.label + ' — ' + App.money(v)) + '">' +
+            '<div class="gc-fill seg-' + chave + '" style="height:' +
+              (v > 0 ? Math.max(alt, 3).toFixed(2) : '0') + '%"></div>' +
           '</div>' +
           '<div class="gc-base"></div>' +
           '<div class="gc-lbl">' + E(labelCurto(m.ano, m.mes)) + '</div>' +
         '</div>';
       });
 
-      h += '</div><div class="legenda">' +
-        '<span><i class="chip seg-agua"></i>Água</span>' +
-        '<span><i class="chip seg-luz"></i>Luz</span>' +
-        '<span><i class="chip seg-outros"></i>Outros</span>' +
-        '</div>';
-
-      h += '<p class="muted small" style="margin:10px 0 0">Último mês (' + E(ultimo.label) + '): contas ' +
-        App.money(ultimo.contas_cobrado) + ' · aluguel ' + App.money(ultimo.aluguel_cobrado) + '.</p>';
-
-      h += '</div></div>';
-      elGrafico.innerHTML = h;
-    }
-
-    // faixa de uma coluna: percentual do item dentro do total daquele mês
-    function colSeg(nome, valor, total) {
-      valor = Number(valor) || 0;
-      if (valor <= 0 || !(total > 0)) return '';
-      return '<span class="gc-seg seg-' + nome + '" style="height:' +
-        ((valor / total) * 100).toFixed(2) + '%"></span>';
+      h += '</div>';
+      if (variacao) h += '<p class="small" style="margin:10px 0 0">' + variacao + '</p>';
+      return h + '</div></div>';
     }
 
     /* ---------------- abas ---------------- */
