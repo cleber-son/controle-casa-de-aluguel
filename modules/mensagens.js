@@ -213,6 +213,97 @@ function gerarMensagensDoMes(ano, mes, modelo) {
   };
 }
 
+// ── Prestação de contas do repasse (grupo da família) ────────────
+//
+// Mensagem para o grupo: quanto de aluguel entrou no mês, como ficou a divisão
+// meio a meio e o que foi descontado de cada um. Só o aluguel EFETIVAMENTE
+// PAGO entra na divisão — é dinheiro que existe.
+
+function nomeDestinatario(d) {
+  return d === 'pai' ? 'Pai' : 'Mãe';
+}
+
+function gerarMensagemRepasse(ano, mes) {
+  const payload = calc.carregarMes(ano, mes);
+  const t = payload.totais;
+  const r = t.repasse;
+
+  const ocupadas = payload.casas.filter((c) => !c.vazia);
+  const pagas = ocupadas.filter((c) => c.aluguel_pago && c.aluguel_valor > 0);
+  const devendo = ocupadas.filter((c) => !c.aluguel_pago && c.aluguel_valor > 0);
+
+  const recebido = t.aluguel_recebido;
+  const descontos = payload.descontos || [];
+  const pagamentos = Object.fromEntries(
+    (payload.pagamentos_pais || []).map((p) => [p.destinatario, p]));
+
+  const linhas = [];
+  linhas.push(`🏡 *QUINTAL — ${payload.mes.label}*`);
+  linhas.push('_Prestação de contas do aluguel_');
+  linhas.push('');
+
+  // o que entrou
+  if (!pagas.length) {
+    linhas.push('💰 *Aluguel recebido: R$ 0,00*');
+    linhas.push('_Nenhum aluguel pago até agora neste mês._');
+  } else {
+    linhas.push(`💰 *Aluguel recebido: ${moeda(recebido)}*`);
+    for (const c of pagas) {
+      linhas.push(`✅ Casa ${c.casa_str} — ${c.inquilino || 'sem nome'}: ${moeda(c.aluguel_valor)}`);
+    }
+  }
+
+  if (devendo.length) {
+    const emAberto = calc.round2(devendo.reduce((s2, c) => s2 + c.aluguel_valor, 0));
+    linhas.push('');
+    linhas.push(`⏳ *Ainda em aberto: ${moeda(emAberto)}*`);
+    for (const c of devendo) {
+      linhas.push(`• Casa ${c.casa_str} — ${c.inquilino || 'sem nome'}: ${moeda(c.aluguel_valor)}`);
+    }
+    linhas.push('_Entra na divisão assim que for pago._');
+  }
+
+  // divisão
+  linhas.push('');
+  linhas.push('➗ *Divisão (metade para cada)*');
+
+  for (const dest of ['pai', 'mae']) {
+    const nome = nomeDestinatario(dest);
+    const bruto = r[`bruto_${dest}`];
+    const desc = r[`desconto_${dest}`];
+    const liquido = r[`liquido_${dest}`];
+    const meus = descontos.filter((d) => d.destinatario === dest);
+
+    linhas.push('');
+    linhas.push(`*${nome}*`);
+    linhas.push(`Metade: ${moeda(bruto)}`);
+    if (meus.length) {
+      for (const d of meus) linhas.push(`➖ ${d.descricao}: ${moeda(d.valor)}`);
+      linhas.push(`_Descontos: ${moeda(desc)}_`);
+    }
+    const pg = pagamentos[dest];
+    const selo = pg && pg.pago
+      ? ` ✅ _pago${pg.data_pagamento ? ' em ' + ddmm(pg.data_pagamento) : ''}_`
+      : '';
+    linhas.push(`👉 *A receber: ${moeda(liquido)}*${selo}`);
+  }
+
+  const totalRepasse = calc.round2(r.liquido_pai + r.liquido_mae);
+  linhas.push('');
+  linhas.push(`📊 _Total a repassar: ${moeda(totalRepasse)}_`);
+
+  // contas do mês entram só como informação — não saem do aluguel
+  linhas.push('');
+  linhas.push(`_Água, luz e outros do mês (${moeda(t.contas_cobrado)}) são cobrados à parte dos inquilinos e não entram nesta divisão._`);
+
+  return {
+    texto: linhas.join('\n'),
+    label: payload.mes.label,
+    recebido,
+    total_repasse: totalRepasse,
+  };
+}
+
 // ── Cobrança consolidada por inquilino ───────────────────────────
 //
 // Junta TODOS os meses em que a casa ainda deve contas, num texto só.
@@ -407,6 +498,7 @@ module.exports = {
   gerarMensagensDoMes,
   listarPendencias,
   gerarMensagemPendencias,
+  gerarMensagemRepasse,
   textoRegras,
   normalizarTelefone,
   waUrl,

@@ -14,11 +14,17 @@ const session = require('express-session');
 const { log, warn, error } = require('./modules/logger');
 const { verificarSenha, requireAuth } = require('./modules/auth');
 const apiRouter = require('./modules/api');
+const SQLiteStore = require('./modules/sessionStore');
+const db = require('./modules/db');
 
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const SECRET = process.env.SESSION_SECRET || '';
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
-const VERSION = '3.10.0';
+const VERSION = '3.11.0';
+
+// Quanto tempo um dispositivo lembrado continua logado (renovado a cada visita).
+const DIAS_LEMBRAR = parseInt(process.env.SESSAO_DIAS || '365', 10);
+const SESSAO_MS = 1000 * 60 * 60 * 24 * DIAS_LEMBRAR;
 
 if (!SECRET) warn('SESSION_SECRET não definido. Gere com: openssl rand -hex 32');
 if (!process.env.APP_PASSWORD) warn('APP_PASSWORD não definido — ninguém consegue entrar.');
@@ -28,17 +34,36 @@ app.set('trust proxy', 1); // Caddy/Cloudflare à frente
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
+// leitor de cookies enxuto — só precisamos ler o token de dispositivo
+app.use((req, res, next) => {
+  req.cookies = {};
+  const raw = req.headers.cookie;
+  if (raw) {
+    for (const parte of raw.split(';')) {
+      const i = parte.indexOf('=');
+      if (i < 0) continue;
+      const k = parte.slice(0, i).trim();
+      if (!k) continue;
+      try { req.cookies[k] = decodeURIComponent(parte.slice(i + 1).trim()); } catch { /* ignora */ }
+    }
+  }
+  next();
+});
+
+// Sessão no SQLite: sem isso, todo restart do container deslogava todo mundo
+// (o MemoryStore do express-session vive só na RAM do processo).
 app.use(session({
+  store: new SQLiteStore({ ttl: SESSAO_MS }),
   secret: SECRET || 'fallback-trocar-em-producao',
   name: 'quintal.sid',
   resave: false,
   saveUninitialized: false,
-  rolling: true,
+  rolling: true, // cada visita renova o prazo: quem usa toda semana nunca cai
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
     secure: COOKIE_SECURE,
-    maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
+    maxAge: SESSAO_MS,
   },
 }));
 
@@ -75,6 +100,61 @@ async function send2FACode(code, dest) {
     subject: '🏡 Quintal — código de acesso',
     html,
   });
+}
+
+// ─── Dispositivos confiáveis ─────────────────────────────────────
+// Depois de confirmar o código por e-mail uma vez, o aparelho recebe um token
+// próprio. Enquanto ele valer, o login não pede 2FA de novo — é o "lembrar
+// deste dispositivo". Guardamos só o hash do token: vazar o banco não permite
+// forjar um cookie válido.
+const COOKIE_DISPOSITIVO = 'quintal.dev';
+const DIAS_DISPOSITIVO = parseInt(process.env.DISPOSITIVO_DIAS || '365', 10);
+const DISPOSITIVO_MS = 1000 * 60 * 60 * 24 * DIAS_DISPOSITIVO;
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS dispositivos (
+  id         INTEGER PRIMARY KEY,
+  token_hash TEXT UNIQUE NOT NULL,
+  apelido    TEXT,
+  criado_em  TEXT NOT NULL DEFAULT (datetime('now')),
+  usado_em   TEXT,
+  expira_em  INTEGER NOT NULL
+);`);
+
+function hashToken(t) {
+  return crypto.createHash('sha256').update(String(t)).digest('hex');
+}
+
+function dispositivoConfiavel(req) {
+  const t = req.cookies ? req.cookies[COOKIE_DISPOSITIVO] : null;
+  if (!t) return null;
+  const row = db.prepare('SELECT * FROM dispositivos WHERE token_hash = ?').get(hashToken(t));
+  if (!row) return null;
+  if (row.expira_em <= Date.now()) {
+    db.prepare('DELETE FROM dispositivos WHERE id = ?').run(row.id);
+    return null;
+  }
+  db.prepare("UPDATE dispositivos SET usado_em = datetime('now') WHERE id = ?").run(row.id);
+  return row;
+}
+
+function confiarDispositivo(res, apelido) {
+  const token = crypto.randomBytes(32).toString('hex');
+  db.prepare('INSERT INTO dispositivos (token_hash, apelido, expira_em) VALUES (?, ?, ?)')
+    .run(hashToken(token), apelido || null, Date.now() + DISPOSITIVO_MS);
+  res.cookie(COOKIE_DISPOSITIVO, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: COOKIE_SECURE,
+    maxAge: DISPOSITIVO_MS,
+  });
+  db.prepare('DELETE FROM dispositivos WHERE expira_em <= ?').run(Date.now());
+}
+
+function esquecerDispositivo(req, res) {
+  const t = req.cookies ? req.cookies[COOKIE_DISPOSITIVO] : null;
+  if (t) db.prepare('DELETE FROM dispositivos WHERE token_hash = ?').run(hashToken(t));
+  res.clearCookie(COOKIE_DISPOSITIVO, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
 }
 
 // ─── Turnstile + rate-limit do login ─────────────────────────────
@@ -152,7 +232,19 @@ app.post('/login', async (req, res) => {
 
   _loginOk(ip);
 
+  const lembrar = String((req.body && req.body.lembrar) || '') !== '';
+
+  // aparelho já confirmado por e-mail antes entra direto
+  if (dispositivoConfiavel(req)) {
+    req.session.autenticado = true;
+    req.session.loginAt = Date.now();
+    if (!lembrar) req.session.cookie.expires = false; // só até fechar o navegador
+    log(`[AUTH] Login OK (dispositivo confiável, sem 2FA) ip=${ip}`);
+    return res.redirect('/');
+  }
+
   if (twoFAReady()) {
+    req.session.lembrar = lembrar;
     const code = String(crypto.randomInt(100000, 1000000));
     req.session.pending2fa = { code, expires: Date.now() + TWOFA_TTL_MS, attempts: 0 };
     req.session.autenticado = false;
@@ -169,6 +261,8 @@ app.post('/login', async (req, res) => {
 
   req.session.autenticado = true;
   req.session.loginAt = Date.now();
+  if (lembrar) confiarDispositivo(res, 'sem 2FA');
+  else req.session.cookie.expires = false;
   log(`[AUTH] Login OK ip=${ip}`);
   res.redirect('/');
 });
@@ -190,14 +284,21 @@ app.post('/login/verify-2fa', (req, res) => {
   const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
   if (!ok) return res.redirect('/login?step=2fa&erro=codigo');
 
+  const lembrar = req.session.lembrar !== false;
   delete req.session.pending2fa;
+  delete req.session.lembrar;
   req.session.autenticado = true;
   req.session.loginAt = Date.now();
-  log('[AUTH] Login 2FA confirmado');
+  if (lembrar) confiarDispositivo(res, 'confirmado por e-mail');
+  else req.session.cookie.expires = false;
+  log(`[AUTH] Login 2FA confirmado (lembrar=${lembrar ? 'sim' : 'nao'})`);
   res.redirect('/');
 });
 
 app.post('/logout', (req, res) => {
+  // "Sair" mantém o aparelho confiável (não pede código de novo).
+  // "Sair e esquecer" apaga o token: o próximo login volta a exigir 2FA.
+  if (String((req.body && req.body.esquecer) || '') !== '') esquecerDispositivo(req, res);
   req.session.destroy(() => res.redirect('/login'));
 });
 
@@ -242,6 +343,7 @@ app.listen(PORT, '0.0.0.0', () => {
   log(`🏡 Quintal — Controle de Aluguel v${VERSION} ONLINE`);
   log(`   http://0.0.0.0:${PORT}`);
   log(`   COOKIE_SECURE=${COOKIE_SECURE}  2FA=${twoFAReady() ? 'on' : 'off'}  Turnstile=${TURNSTILE_ENABLED ? 'on' : 'off'}`);
+  log(`   sessão no SQLite · lembra o dispositivo por ${DIAS_LEMBRAR} dias`);
   log('═══════════════════════════════════════════════');
 });
 

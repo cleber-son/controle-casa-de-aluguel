@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Repasse</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.10">
+  <link rel="stylesheet" href="/css/app.css?v=3.11">
   <style>
     /* regras específicas desta página — sempre com os tokens do design system */
     .desc-item { display:flex; align-items:center; gap:10px; padding:10px 0;
@@ -45,7 +45,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js?v=3.10"></script>
+  <script src="/js/core.js?v=3.11"></script>
   <script>
   (function () {
     App.mount('repasse');
@@ -377,6 +377,7 @@
       var acao = btn.getAttribute('data-acao');
 
       if (acao === 'recarregar') return carregarMes();
+      if (acao === 'msg-grupo') return abrirMensagemGrupo(btn);
       if (acao === 'copiar') return App.copiar(textoResumo());
       if (acao === 'mes') {
         var ano = parseInt(btn.getAttribute('data-ano'), 10);

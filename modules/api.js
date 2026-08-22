@@ -442,6 +442,14 @@ router.post('/mensagens/teste', h((req, res) => {
   });
 }));
 
+// ── Mensagem de prestação de contas do repasse ───────────────────
+
+router.get('/repasse/mensagem/:ano/:mes', h((req, res) => {
+  const { ano, mes } = anoMesDaRota(req);
+  const m = msgs.gerarMensagemRepasse(ano, mes);
+  res.json({ ok: true, ...m, wa_url: msgs.waUrl(null, m.texto) });
+}));
+
 // ── Cobrança consolidada por inquilino ───────────────────────────
 
 // ?aluguel=0 devolve só as contas (água, luz e outros)

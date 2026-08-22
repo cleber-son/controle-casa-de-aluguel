@@ -514,12 +514,22 @@
           '<nav class="nav" id="nav-principal" aria-label="Navegação principal">' + links + '</nav>' +
           '<div class="header-actions">' +
             '<button type="button" class="btn btn-ghost btn-sm btn-icon" id="tema-toggle">☀️</button>' +
-            '<form method="POST" action="/logout">' +
-              '<button type="submit" class="btn btn-ghost btn-sm" title="Sair">Sair</button>' +
+            '<form method="POST" action="/logout" id="form-sair">' +
+              '<input type="hidden" name="esquecer" id="sair-esquecer" value="">' +
+              '<button type="submit" class="btn btn-ghost btn-sm" title="Sair (este aparelho continua lembrado)">Sair</button>' +
             '</form>' +
           '</div>' +
         '</div>' +
       '</header>';
+
+    // Shift+clique em Sair = sair e esquecer o aparelho (volta a pedir o código)
+    var formSair = alvo.querySelector('#form-sair');
+    if (formSair) {
+      formSair.addEventListener('click', function (ev) {
+        var campo = document.getElementById('sair-esquecer');
+        if (campo) campo.value = ev.shiftKey ? '1' : '';
+      });
+    }
 
     var btnTema = alvo.querySelector('#tema-toggle');
     if (btnTema) btnTema.addEventListener('click', function () { alternaTema(); });

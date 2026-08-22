@@ -128,15 +128,18 @@ if (!colunasCasas.includes('inquilino_desde')) {
   log('db: coluna casas.inquilino_desde criada');
 }
 
-// ── Seed de casas (só se a tabela estiver vazia) ─────────────────
+// ── Seed de regras (só se a tabela estiver vazia) ────────────────
+// Antes esta lista era inserida com um INSERT INTO casas — os objetos são
+// regras, então um banco novo quebrava no boot ("Missing named parameter
+// numero"). Agora vai para a tabela certa.
 
-const totalCasas = db.prepare('SELECT COUNT(*) AS n FROM casas').get().n;
-if (totalCasas === 0) {
+const totalRegras = db.prepare('SELECT COUNT(*) AS n FROM regras').get().n;
+if (totalRegras === 0) {
   const ins = db.prepare(`
-    INSERT INTO casas (numero, inquilino, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
-    VALUES (@numero, @inquilino, NULL, @aluguel, 1, @relogio, 1, 1, @observacoes)
+    INSERT INTO regras (ordem, categoria, titulo, texto, ativa)
+    VALUES (@ordem, @categoria, @titulo, @texto, 1)
   `);
-  const seed = db.transaction((casas) => { for (const c of casas) ins.run(c); });
+  const seed = db.transaction((regras) => { for (const r of regras) ins.run(r); });
   seed([
     { ordem: 1,  categoria: 'seguranca',   titulo: 'Silêncio das 22h às 7h',
       texto: 'Som, TV e conversa em volume baixo depois das 22h. Domingo e feriado, silêncio a partir das 21h.' },
