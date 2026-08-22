@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Mês</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.5">
+  <link rel="stylesheet" href="/css/app.css?v=3.6">
   <style>
     /* Regras específicas da tela de Mês (usam os tokens do app.css) */
     .m-tit{font-size:1.25rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.3px}
@@ -14,21 +14,34 @@
     .m-sec-tit{font-size:.78rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
       color:var(--txt-mute);margin:2px 0 0}
 
-    /* linha de rateio calculado pelo backend */
-    .m-rateio{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
-      background:var(--card-2);border:1px solid var(--line);border-radius:var(--r-sm);
-      padding:8px 10px;font-size:.85rem}
-    .m-rateio b{font-size:1rem}
-
-    /* bloco de um relógio de luz dentro do card de contas */
-    .m-relogio{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;background:var(--bg-2)}
-
-    /* card "Contas do mês" recolhível — depois de lançado ele só atrapalha */
+    /* Lançamento das contas: bloco destacado, logo abaixo das abas de mês.
+       Uma linha por conta — rótulo, valor, vencimento e o rateio calculado. */
+    .m-lanc{border:1px solid var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
     .m-lanc-head{cursor:pointer;user-select:none}
-    .m-lanc-seta{margin-left:auto;color:var(--txt-mute);transition:transform var(--t);font-size:.8rem}
+    .m-lanc-seta{margin-left:auto;color:var(--txt-mute);transition:transform var(--t);font-size:.85rem}
     .m-lanc.is-aberto .m-lanc-seta{transform:rotate(180deg)}
     .m-lanc:not(.is-aberto) .card-body,
     .m-lanc:not(.is-aberto) .card-foot{display:none}
+    .m-lanc .card-body{padding:12px 15px}
+
+    .ml-linha{display:grid;grid-template-columns:112px minmax(96px,1fr) 150px;
+      align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+    .ml-linha:first-child{border-top:0}
+    .ml-rot{display:flex;align-items:center;gap:7px;min-width:0;font-weight:700;font-size:.9rem}
+    .ml-rot .ml-pt{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+    .ml-pt-agua{background:var(--agua)}
+    .ml-pt-luz{background:var(--luz)}
+    .ml-pt-aluguel{background:var(--aluguel)}
+    .ml-hint{grid-column:2/-1;font-size:.76rem;color:var(--txt-mute);margin-top:-4px;
+      font-variant-numeric:tabular-nums}
+    .ml-linha .input{min-height:42px}
+    .m-lanc .card-foot{padding:12px 15px}
+
+    @media (max-width:620px){
+      .ml-linha{grid-template-columns:1fr 140px;gap:8px}
+      .ml-rot{grid-column:1/-1}
+      .ml-hint{grid-column:1/-1;margin-top:0}
+    }
 
     /* ---- grid de casas ---- */
     /* stretch (e não start) + rodapé empurrado para baixo = todos os cards de
@@ -108,7 +121,7 @@
     </section>
   </main>
 
-  <script src="/js/core.js?v=3.5"></script>
+  <script src="/js/core.js?v=3.6"></script>
   <script>
   (function () {
     'use strict';
@@ -290,8 +303,8 @@
       var bloq = !!dados.mes.fechado;
       elConteudo.innerHTML =
         secTopo(bloq) +
-        secKpis() +
         secContas(bloq) +
+        secKpis() +
         secCasas(bloq) +
         secAcoes(bloq);
     }
@@ -305,76 +318,67 @@
         (bloq ? '<p class="muted small">Mês fechado para edição. Reabra lá embaixo para lançar ou marcar pagamentos.</p>' : '');
     }
 
+    // Uma linha por conta: rótulo, valor, vencimento e o rateio já calculado.
+    function linhaLanc(cor, rotulo, idValor, valor, idVenc, venc, hint, bloq, semValor) {
+      var h = '<div class="ml-linha">' +
+        '<span class="ml-rot"><i class="ml-pt ml-pt-' + cor + '" aria-hidden="true"></i>' +
+        esc(rotulo) + '</span>';
+
+      if (semValor) {
+        h += '<span class="dim small">valor é por casa</span>';
+      } else {
+        h += '<div class="input-money"><input class="input" id="' + idValor + '" type="text"' +
+          ' inputmode="decimal" placeholder="0,00" aria-label="Valor de ' + esc(rotulo) + '"' +
+          ' value="' + esc(moedaInput(valor)) + '"' + dis(bloq) + '></div>';
+      }
+
+      h += '<input class="input" id="' + idVenc + '" type="date" aria-label="Vencimento de ' + esc(rotulo) + '"' +
+        ' value="' + esc(venc || '') + '"' + dis(bloq) + '>';
+
+      var badge = venc ? badgeVenc(venc) : '';
+      if (hint || badge) {
+        h += '<span class="ml-hint">' + (hint ? esc(hint) : '') + (hint && badge ? ' · ' : '') + badge + '</span>';
+      }
+      return h + '</div>';
+    }
+
     function secContas(bloq) {
       var m = dados.mes;
       var agua = dados.agua || { total: 0, moradores_total: 0, valor_por_cabeca: 0 };
       var relogios = dados.relogios || [];
 
       var luzTotal = relogios.reduce(function (s2, r) { return s2 + (Number(r.valor_total) || 0); }, 0);
-      // mês ainda sem nada lançado começa aberto; já lançado começa fechado (menos rolagem)
+      // mês ainda sem nada lançado começa aberto; já lançado começa fechado
       if (lancAberto === null) lancAberto = !(Number(m.agua_total) > 0 || luzTotal > 0);
-      var resumoLanc = 'Água ' + money(m.agua_total) + ' · Luz ' + money(luzTotal) +
-        ' — toque para ' + (lancAberto ? 'recolher' : 'lançar/editar');
+
+      var resumo = 'Água ' + money(m.agua_total) + ' · Luz ' + money(luzTotal) +
+        ' — toque para ' + (lancAberto ? 'recolher' : 'lançar ou editar');
 
       var h = '<section class="card card-accent-brand m-lanc' + (lancAberto ? ' is-aberto' : '') + '">' +
         '<div class="card-head m-lanc-head" data-acao="toggle-lanc" role="button" tabindex="0"' +
         ' aria-expanded="' + (lancAberto ? 'true' : 'false') + '">' +
-        '<div><div class="card-title">Lançar contas do mês</div>' +
-        '<div class="card-sub">' + esc(resumoLanc) + '</div></div>' +
+        '<div><div class="card-title">Lançar contas de ' + esc(m.label || '') + '</div>' +
+        '<div class="card-sub">' + esc(resumo) + '</div></div>' +
         '<span class="m-lanc-seta" aria-hidden="true">▾</span>' +
         '</div>' +
-        '<div class="card-body stack">';
+        '<div class="card-body">';
 
-      // ÁGUA
-      h += '<div class="stack">' +
-        '<div class="row"><span class="badge badge-agua">Água</span>' +
-        (m.agua_vencimento ? ' ' + badgeVenc(m.agua_vencimento) : '') + '</div>' +
-        '<div class="form-grid">' +
-        '<div class="field"><label class="field-label" for="f-agua-total">Valor total da água (R$)</label>' +
-        '<div class="input-money"><input class="input" id="f-agua-total" type="text" inputmode="decimal" placeholder="0,00" value="' +
-        esc(moedaInput(m.agua_total)) + '"' + dis(bloq) + '></div>' +
-        '<span class="field-hint">Dividido por pessoa entre as casas ocupadas</span></div>' +
-        '<div class="field"><label class="field-label" for="f-agua-venc">Vencimento da água</label>' +
-        '<input class="input" id="f-agua-venc" type="date" value="' + esc(m.agua_vencimento || '') + '"' + dis(bloq) + '></div>' +
-        '</div>' +
-        '<div class="m-rateio"><span class="muted small">Rateio:</span> ' +
-        '<b class="money">' + money(agua.valor_por_cabeca) + '</b> <span class="muted small">por pessoa</span>' +
-        '<span class="dim small">· ' + esc(String(agua.moradores_total || 0)) + ' pessoa(s) no mês</span></div>' +
-        '</div>';
+      h += linhaLanc('agua', 'Água', 'f-agua-total', m.agua_total, 'f-agua-venc', m.agua_vencimento,
+        money(agua.valor_por_cabeca) + ' por pessoa · ' + (agua.moradores_total || 0) + ' no mês', bloq);
 
-      // LUZ — uma conta por relógio
       if (!relogios.length) {
         h += '<p class="muted small">Nenhum relógio de luz configurado neste mês.</p>';
       }
       relogios.forEach(function (r) {
-        h += '<div class="m-relogio stack">' +
-          '<div class="row"><span class="badge badge-luz">' + esc(r.nome || ('Relógio ' + r.relogio)) + '</span>' +
-          (r.vencimento ? ' ' + badgeVenc(r.vencimento) : '') + '</div>' +
-          '<p class="muted small">Casas ' + esc(listaPt(r.casas)) + ' · ' +
-          esc(String(r.casas_ocupadas || 0)) + ' ocupada(s)</p>' +
-          '<div class="form-grid">' +
-          '<div class="field"><label class="field-label" for="f-luz-valor-' + r.relogio + '">Valor total (R$)</label>' +
-          '<div class="input-money"><input class="input" id="f-luz-valor-' + r.relogio + '" type="text" inputmode="decimal" placeholder="0,00" value="' +
-          esc(moedaInput(r.valor_total)) + '"' + dis(bloq) + '></div></div>' +
-          '<div class="field"><label class="field-label" for="f-luz-venc-' + r.relogio + '">Vencimento</label>' +
-          '<input class="input" id="f-luz-venc-' + r.relogio + '" type="date" value="' + esc(r.vencimento || '') + '"' + dis(bloq) + '></div>' +
-          '</div>' +
-          '<div class="m-rateio"><span class="muted small">Rateio:</span> ' +
-          '<b class="money">' + money(r.valor_por_peso) + '</b> <span class="muted small">por casa (peso 1)</span>' +
-          '<span class="dim small">· peso total ' + esc(App.num(r.peso_total || 0)) + '</span></div>' +
-          '</div>';
+        var casas = (r.casas || []).join(', ');
+        h += linhaLanc('luz', r.nome || ('Relógio ' + r.relogio),
+          'f-luz-valor-' + r.relogio, r.valor_total, 'f-luz-venc-' + r.relogio, r.vencimento,
+          money(r.valor_por_peso) + ' por casa · ' + (casas ? 'casas ' + casas + ' · ' : '') +
+          (r.casas_ocupadas || 0) + ' ocupada(s)', bloq);
       });
 
-      // ALUGUEL
-      h += '<div class="stack">' +
-        '<div class="row"><span class="badge badge-aluguel">Aluguel</span>' +
-        (m.aluguel_vencimento ? ' ' + badgeVenc(m.aluguel_vencimento) : '') + '</div>' +
-        '<div class="form-grid">' +
-        '<div class="field"><label class="field-label" for="f-aluguel-venc">Vencimento do aluguel</label>' +
-        '<input class="input" id="f-aluguel-venc" type="date" value="' + esc(m.aluguel_vencimento || '') + '"' + dis(bloq) + '></div>' +
-        '</div>' +
-        '<p class="field-hint">O valor do aluguel é por casa — edite no card da casa.</p>' +
-        '</div>';
+      h += linhaLanc('aluguel', 'Aluguel', null, 0, 'f-aluguel-venc', m.aluguel_vencimento,
+        'edite o valor no card de cada casa', bloq, true);
 
       h += '</div>' +
         '<div class="card-foot">' +
