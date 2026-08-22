@@ -2,11 +2,19 @@
 //
 // Regra central: item pago aparece como pago e NÃO entra no TOTAL;
 // o TOTAL é sempre o que está em aberto.
+//
+// O aluguel NÃO entra nas mensagens (é cobrado à parte, ver INCLUIR_ALUGUEL).
+// Por isso, no payload de /api/mensagens, `total_aberto` e `tudo_pago`
+// significam "só as contas" — água, luz e outros.
 
 const db = require('./db');
 const calc = require('./calculo');
 
 const MODELOS = ['cobranca', 'lembrete', 'recibo'];
+
+// O aluguel é combinado/cobrado à parte das contas, então NÃO entra nas
+// mensagens. Para voltar a incluí-lo, basta trocar esta constante para true.
+const INCLUIR_ALUGUEL = false;
 
 const ITENS_MSG = [
   { chave: 'agua',    emoji: '💧', nome: 'Água' },
@@ -76,21 +84,24 @@ function ctxDaCasa(casa, payload) {
 }
 
 function itensDoCtx(ctx) {
-  return ITENS_MSG.map((def) => {
-    const it = ctx.itens[def.chave] || {};
-    const nome = def.chave === 'outros'
-      ? (String(it.descricao || '').trim() || 'Outros')
-      : def.nome;
-    return {
-      chave: def.chave,
-      emoji: def.emoji,
-      nome,
-      valor: calc.round2(it.valor || 0),
-      pago: !!it.pago,
-      pago_em: it.pago_em || null,
-      vencimento: it.vencimento || null,
-    };
-  }).filter((it) => it.valor > 0);
+  return ITENS_MSG
+    .filter((def) => INCLUIR_ALUGUEL || def.chave !== 'aluguel')
+    .map((def) => {
+      const it = ctx.itens[def.chave] || {};
+      const nome = def.chave === 'outros'
+        ? (String(it.descricao || '').trim() || 'Outros')
+        : def.nome;
+      return {
+        chave: def.chave,
+        emoji: def.emoji,
+        nome,
+        valor: calc.round2(it.valor || 0),
+        pago: !!it.pago,
+        pago_em: it.pago_em || null,
+        vencimento: it.vencimento || null,
+      };
+    })
+    .filter((it) => it.valor > 0);
 }
 
 function linhaCobranca(it) {
@@ -117,7 +128,7 @@ function msgCobranca(ctx) {
   if (!aberto.length) {
     return `${cab}\n\n${linhas}\n\n🎉 *Tudo pago! Muito obrigado, ${ctx.inquilino}!* 🙏`;
   }
-  return `${cab}\n\n${linhas}\n\n💰 *TOTAL: ${moeda(totalAberto)}*\n\n${fraseRateio(ctx)}\nQualquer dúvida é só chamar 🙏`;
+  return `${cab}\n\n${linhas}\n\n💰 *TOTAL DAS CONTAS: ${moeda(totalAberto)}*\n\n${fraseRateio(ctx)}\n_O aluguel é combinado à parte._\nQualquer dúvida é só chamar 🙏`;
 }
 
 function msgLembrete(ctx) {
@@ -183,8 +194,9 @@ function gerarMensagensDoMes(ano, mes, modelo) {
         tem_telefone: !!tel,
         texto,
         wa_url: waUrl(tel, texto),
-        total_aberto: c.total_aberto,
-        tudo_pago: c.tudo_pago,
+        // aqui "aberto/pago" = só as contas (o aluguel não entra na mensagem)
+        total_aberto: c.contas_aberto,
+        tudo_pago: c.contas_quitadas,
         enviado_em: enviadoPorCasa[c.casa_id] || null,
       };
     });
@@ -207,11 +219,42 @@ function gerarMensagensDoMes(ano, mes, modelo) {
   };
 }
 
-// Regras do quintal formatadas para o WhatsApp.
+const ICONE_CATEGORIA = {
+  convivencia: '🤝',
+  contas: '💰',
+  limpeza: '🧹',
+  seguranca: '🔒',
+  animais: '🐾',
+};
+
+/**
+ * Regras do quintal prontas para colar no WhatsApp.
+ *
+ * Formatação pensada para o app do WhatsApp: *negrito* no título de cada regra,
+ * numeração contínua, linha em branco entre as regras (senão o app cola tudo
+ * num parágrafo só) e um rodapé curto. Sem markdown que o WhatsApp não entenda.
+ */
 function textoRegras() {
   const regras = db.prepare('SELECT * FROM regras WHERE ativa = 1 ORDER BY ordem, id').all();
-  const corpo = regras.map((r, i) => `*${i + 1}. ${r.titulo}*\n${r.texto}`).join('\n\n');
-  return `📋 *REGRAS DO QUINTAL*\n\n${corpo}`;
+  if (!regras.length) {
+    return '📋 *REGRAS DO QUINTAL*\n\n_Nenhuma regra cadastrada ainda._';
+  }
+  const corpo = regras
+    .map((r, i) => {
+      const ico = ICONE_CATEGORIA[r.categoria] || '📌';
+      return `${ico} *${i + 1}. ${r.titulo}*\n${r.texto}`;
+    })
+    .join('\n\n');
+  return [
+    '📋 *REGRAS DO QUINTAL* 🏡',
+    '',
+    '_As combinações da casa, pra todo mundo viver bem aqui._',
+    '',
+    corpo,
+    '',
+    '— — —',
+    '_Qualquer dúvida ou situação diferente, é só chamar que a gente combina._ 🙏',
+  ].join('\n');
 }
 
 module.exports = {

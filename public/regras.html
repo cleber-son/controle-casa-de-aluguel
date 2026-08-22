@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Regras</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.1">
+  <link rel="stylesheet" href="/css/app.css?v=3.2">
   <style>
     /* --- específico da página de regras --- */
     .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -23,6 +23,9 @@
     .regra-corpo{flex:1;min-width:0}
     .regra-titulo{font-weight:600;margin:0 0 4px;font-size:1rem}
     .regra-texto{margin:0;color:var(--txt-dim);line-height:1.5;font-size:.92rem}
+    .wa-preview{width:100%;min-height:340px;resize:vertical;line-height:1.5;
+      font-family:var(--font-mono);font-size:.84rem;white-space:pre-wrap}
+    .modal-wa{max-width:640px}
     .regra-acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
     .card.inativa{opacity:.45}
     .card.inativa .regra-num{background:transparent;color:var(--txt-mute)}
@@ -66,7 +69,7 @@
         <div class="header-actions wrap">
           <button class="btn btn-outline btn-sm" type="button" id="btn-agrupar">📂 Ver em ordem</button>
           <button class="btn btn-outline btn-sm" type="button" id="btn-print">🖨️ Imprimir</button>
-          <button class="btn btn-wa btn-sm" type="button" id="btn-copiar">📋 Copiar para o WhatsApp</button>
+          <button class="btn btn-wa btn-sm" type="button" id="btn-copiar">💬 Enviar no WhatsApp</button>
           <button class="btn btn-primary btn-sm" type="button" id="btn-nova">+ Nova regra</button>
         </div>
       </div>
@@ -78,7 +81,7 @@
     <div class="folha" id="folha"></div>
   </main>
 
-  <script src="/js/core.js?v=3.1"></script>
+  <script src="/js/core.js?v=3.2"></script>
   <script>
   (function () {
     App.mount('regras');
@@ -360,13 +363,84 @@
 
     document.getElementById('btn-nova').addEventListener('click', function () { abrirForm(null); });
 
+    /* ---------------- regras prontas para o WhatsApp ---------------- */
+    /* Abre a prévia exata do que vai ser colado: dá para conferir antes,
+       copiar de uma vez ou abrir direto a conversa de um inquilino. */
+    function abrirWhats(texto) {
+      var box = document.createElement('div');
+
+      var aviso = document.createElement('p');
+      aviso.className = 'muted small';
+      aviso.style.margin = '0 0 10px';
+      aviso.textContent = 'É este texto que vai para o WhatsApp — os títulos aparecem em negrito no app. ' +
+        'Só as regras ativas entram.';
+      box.appendChild(aviso);
+
+      var pre = document.createElement('textarea');
+      pre.className = 'textarea wa-preview';
+      pre.setAttribute('readonly', 'readonly');
+      pre.setAttribute('aria-label', 'Texto das regras para o WhatsApp');
+      pre.value = texto;
+      box.appendChild(pre);
+
+      var linha = document.createElement('p');
+      linha.className = 'dim small';
+      linha.style.margin = '8px 0 0';
+      linha.textContent = texto.length + ' caracteres · ' +
+        (S.regras.filter(function (r) { return !!r.ativa; }).length) + ' regra(s) ativa(s)';
+      box.appendChild(linha);
+
+      var destino = document.createElement('div');
+      destino.className = 'field';
+      destino.style.marginTop = '12px';
+      destino.innerHTML = '<label class="field-label" for="wa-destino">Abrir conversa de</label>' +
+        '<select class="select" id="wa-destino"><option value="">Escolher na hora (abre o WhatsApp sem contato)</option></select>' +
+        '<div class="field-hint">Casas sem telefone cadastrado não aparecem na lista.</div>';
+      box.appendChild(destino);
+
+      var foot = document.createElement('div');
+      foot.innerHTML =
+        '<button type="button" class="btn btn-outline" id="wa-copiar">📋 Copiar texto</button>' +
+        '<span class="spacer"></span>' +
+        '<button type="button" class="btn btn-wa" id="wa-abrir">💬 Abrir WhatsApp</button>';
+
+      var m = App.modal({ titulo: 'Regras para o WhatsApp', html: box, foot: foot, classe: 'modal-wa' });
+
+      // preenche os contatos sem travar a abertura do modal
+      App.api('/casas').then(function (cs) {
+        var lista = Array.isArray(cs) ? cs : (cs && cs.casas) || [];
+        var sel = document.getElementById('wa-destino');
+        if (!sel) return;
+        lista.filter(function (c) {
+          return c.ativa && String(c.telefone || '').replace(/\D/g, '') && String(c.inquilino || '').trim();
+        }).forEach(function (c) {
+          var o = document.createElement('option');
+          o.value = c.telefone;
+          o.textContent = 'Casa ' + String(c.numero).padStart(2, '0') + ' — ' + c.inquilino;
+          sel.appendChild(o);
+        });
+      }).catch(function () { /* lista de contatos é opcional */ });
+
+      document.getElementById('wa-copiar').addEventListener('click', function () {
+        App.copiar(texto);
+      });
+      document.getElementById('wa-abrir').addEventListener('click', function () {
+        var sel = document.getElementById('wa-destino');
+        var tel = sel ? sel.value : '';
+        window.open(App.waUrl(tel, texto), '_blank', 'noopener');
+        m.fechar(true);
+      });
+
+      setTimeout(function () { try { pre.focus(); pre.setSelectionRange(0, 0); } catch (e) { /* ignora */ } }, 60);
+    }
+
     document.getElementById('btn-copiar').addEventListener('click', function () {
       var btn = this;
       btn.setAttribute('disabled', 'disabled');
       App.api('/regras/texto').then(function (d) {
         btn.removeAttribute('disabled');
-        if (!d || !d.texto) { App.toast('Não veio texto para copiar.', 'err'); return; }
-        App.copiar(d.texto);
+        if (!d || !d.texto) { App.toast('Não há regras ativas para enviar.', 'err'); return; }
+        abrirWhats(d.texto);
       }).catch(function () { btn.removeAttribute('disabled'); });
     });
 

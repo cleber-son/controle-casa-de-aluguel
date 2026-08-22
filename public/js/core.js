@@ -57,8 +57,8 @@
   aplicaTema(temaAtual());
 
   var NAV = [
-    { chave: 'mes',       href: '/',          titulo: 'Mês',       icone: '📅' },
     { chave: 'casas',     href: '/casas',     titulo: 'Casas',     icone: '🏠' },
+    { chave: 'mes',       href: '/',          titulo: 'Mês',       icone: '📅' },
     { chave: 'whatsapp',  href: '/whatsapp',  titulo: 'WhatsApp',  icone: '💬' },
     { chave: 'historico', href: '/historico', titulo: 'Histórico', icone: '📊' },
     { chave: 'repasse',   href: '/repasse',   titulo: 'Repasse',   icone: '🤝' },

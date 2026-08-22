@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Histórico</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.1">
+  <link rel="stylesheet" href="/css/app.css?v=3.2">
   <style>
     /* --- específico da página de histórico --- */
     .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -130,11 +130,12 @@
     </div>
 
     <div id="resumo-geral"></div>
+    <div id="grafico-contas"></div>
     <div id="tabs-wrap" class="no-print"></div>
     <div id="painel"><div class="skeleton" style="height:220px"></div></div>
   </main>
 
-  <script src="/js/core.js?v=3.1"></script>
+  <script src="/js/core.js?v=3.2"></script>
   <script>
   (function () {
     App.mount('historico');
@@ -143,6 +144,7 @@
     var S = { hist: null, casas: [], aba: null, cacheMes: {}, cacheCasa: {}, casaSel: null };
 
     var elResumo = document.getElementById('resumo-geral');
+    var elGrafico = document.getElementById('grafico-contas');
     var elTabs   = document.getElementById('tabs-wrap');
     var elPainel = document.getElementById('painel');
     var elPrint  = document.getElementById('print-head');
@@ -161,6 +163,7 @@
         S.hist = d;
         var meses = (d && d.meses) || [];
         renderResumoGeral(d);
+        renderGraficoContas(meses);
         renderTabs();
         if (!meses.length) {
           elPainel.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
@@ -171,7 +174,8 @@
         }
         // pré-seleciona o mês em uso no app, se ele existir no histórico
         var atual = App.mesAtual();
-        var alvo = meses.filter(function (m) { return m.ano === atual.ano && m.mes === atual.mes; })[0] || meses[0];
+        var alvo = meses.filter(function (m) { return m.ano === atual.ano && m.mes === atual.mes; })[0] ||
+                   meses[meses.length - 1];
         selecionar('mes:' + chaveMes(alvo.ano, alvo.mes));
       }).catch(function (e) {
         elPainel.innerHTML = erroBox('Não foi possível carregar o histórico. ' + (e && e.message ? e.message : ''));
@@ -199,6 +203,66 @@
       return '<div class="stat"><div class="stat-label">' + E(label) + '</div>' +
         '<div class="stat-value">' + valor + '</div>' +
         (hint ? '<div class="stat-hint">' + E(hint) + '</div>' : '') + '</div>';
+    }
+
+    /* ---------------- gráfico das contas ---------------- */
+    /* Barras empilhadas em CSS puro (mesmo padrão da aba "Por casa"):
+       uma barra por mês, na ordem crescente, com água + luz + outros.
+       O aluguel fica de fora — é cobrado à parte — mas aparece como
+       referência no rodapé de cada linha. */
+    function renderGraficoContas(meses) {
+      if (!meses || meses.length < 1) { elGrafico.innerHTML = ''; return; }
+
+      var max = 0;
+      meses.forEach(function (m) {
+        var v = Number(m.contas_cobrado) || 0;
+        if (v > max) max = v;
+      });
+      if (max <= 0) {
+        elGrafico.innerHTML = '<div class="card" style="margin-bottom:14px"><div class="card-head">' +
+          '<div><div class="card-title">Evolução das contas</div>' +
+          '<div class="card-sub">água, luz e outros — mês a mês</div></div></div>' +
+          '<div class="card-body"><div class="empty"><div class="empty-icon">📈</div>' +
+          '<p class="muted small">Nenhuma conta lançada ainda — o gráfico aparece assim que houver valores.</p>' +
+          '</div></div></div>';
+        return;
+      }
+      var f = 100 / max;
+
+      var media = meses.reduce(function (s2, m) { return s2 + (Number(m.contas_cobrado) || 0); }, 0) / meses.length;
+      var ultimo = meses[meses.length - 1];
+
+      var h = '<div class="card card-accent-agua" style="margin-bottom:14px">' +
+        '<div class="card-head"><div>' +
+        '<div class="card-title">Evolução das contas</div>' +
+        '<div class="card-sub">água, luz e outros — mês a mês (aluguel não entra)</div></div>' +
+        '<div class="right small muted">média ' + App.money(media) + '</div></div>' +
+        '<div class="card-body"><div class="chart">';
+
+      meses.forEach(function (m) {
+        var total = Number(m.contas_cobrado) || 0;
+        h += '<div class="bar-row">' +
+          '<div class="bar-lbl">' + E(labelCurto(m.ano, m.mes)) + '</div>' +
+          '<div class="bar-track" role="img" aria-label="' + E(m.label + ': contas ' + App.money(total)) + '"' +
+            ' title="' + E('Água ' + App.money(m.agua_cobrado) + ' · Luz ' + App.money(m.luz_cobrado) +
+                           ' · Outros ' + App.money(m.outros_cobrado)) + '">' +
+            seg('agua', m.agua_cobrado, f) + seg('luz', m.luz_cobrado, f) + seg('outros', m.outros_cobrado, f) +
+          '</div>' +
+          '<div class="bar-val money">' + App.money(total) + '</div>' +
+        '</div>';
+      });
+
+      h += '</div><div class="legenda">' +
+        '<span><i class="chip seg-agua"></i>Água</span>' +
+        '<span><i class="chip seg-luz"></i>Luz</span>' +
+        '<span><i class="chip seg-outros"></i>Outros</span>' +
+        '</div>';
+
+      h += '<p class="muted small" style="margin:10px 0 0">Último mês (' + E(ultimo.label) + '): contas ' +
+        App.money(ultimo.contas_cobrado) + ' · aluguel ' + App.money(ultimo.aluguel_cobrado) + '.</p>';
+
+      h += '</div></div>';
+      elGrafico.innerHTML = h;
     }
 
     /* ---------------- abas ---------------- */
@@ -267,9 +331,9 @@
           ? '<span class="badge badge-ok">tudo pago</span>'
           : '<span class="badge badge-warn">' + (t.casas_devendo || 0) + ' devendo</span>') + '</div>' +
         '</div><div class="card-body"><div class="stat-row grid grid-4">' +
-          stat('Cobrado', App.money(t.total_cobrado), '') +
-          stat('Recebido', '<span class="money-paid">' + App.money(t.total_recebido) + '</span>', '') +
-          stat('Em aberto', '<span class="' + (zero(t.total_aberto) ? 'money-paid' : 'money-open') + '">' + App.money(t.total_aberto) + '</span>', '') +
+          stat('Contas', App.money(t.contas_cobrado), 'aberto ' + App.money(t.contas_aberto)) +
+          stat('Aluguel', App.money(t.aluguel_cobrado), 'aberto ' + App.money(t.aluguel_aberto)) +
+          stat('Recebido', '<span class="money-paid">' + App.money(t.total_recebido) + '</span>', 'de ' + App.money(t.total_cobrado) + ' cobrados') +
           stat('Casas', (t.casas_pagas || 0) + ' / ' + ((t.casas_pagas || 0) + (t.casas_devendo || 0)), 'pagas / ocupadas') +
         '</div></div></div>';
 
@@ -315,7 +379,7 @@
       var i = -1;
       meses.forEach(function (m, idx) { if (m.ano === ano && m.mes === mes) i = idx; });
       var atual = i >= 0 ? meses[i] : null;
-      var ant = (i >= 0 && meses[i + 1]) ? meses[i + 1] : null; // lista vem decrescente
+      var ant = (i > 0) ? meses[i - 1] : null; // lista vem crescente: anterior = i - 1
 
       var h = '<div class="card"><div class="card-head"><div><div class="card-title">Comparação</div>' +
         '<div class="card-sub">' + (ant ? 'vs. ' + E(ant.label) : 'sem mês anterior no histórico') + '</div></div></div><div class="card-body">';
@@ -326,7 +390,8 @@
       h += '<div class="stack">' +
         blocoDelta('💧 Água', atual.agua_total, ant.agua_total) +
         blocoDelta('💡 Luz', atual.luz_total, ant.luz_total) +
-        blocoDelta('Total cobrado', atual.total_cobrado, ant.total_cobrado) +
+        blocoDelta('Contas (água+luz+outros)', atual.contas_cobrado, ant.contas_cobrado) +
+        blocoDelta('🔑 Aluguel', atual.aluguel_cobrado, ant.aluguel_cobrado) +
         '</div>';
       return h + '</div></div>';
     }

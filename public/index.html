@@ -6,49 +6,87 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Mês</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.1">
+  <link rel="stylesheet" href="/css/app.css?v=3.2">
   <style>
     /* Regras específicas da tela de Mês (usam os tokens do app.css) */
-    .m-tit{font-size:1.35rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.4px}
+    .m-tit{font-size:1.25rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.3px}
     .m-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .m-sec-tit{font-size:.78rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+      color:var(--txt-mute);margin:2px 0 0}
 
     /* linha de rateio calculado pelo backend */
     .m-rateio{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
       background:var(--card-2);border:1px solid var(--line);border-radius:var(--r-sm);
-      padding:10px 12px}
-    .m-rateio b{font-size:1.05rem}
+      padding:8px 10px;font-size:.85rem}
+    .m-rateio b{font-size:1rem}
 
     /* bloco de um relógio de luz dentro do card de contas */
     .m-relogio{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;background:var(--bg-2)}
 
-    /* item cobrável dentro do card da casa */
-    .m-item{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;
-      padding:10px 4px;border-top:1px solid var(--line);min-height:48px;cursor:pointer}
-    .m-item:first-child{border-top:0}
-    .m-item-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-    .m-item-val{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .m-item.is-zero{opacity:.5;cursor:default}
-    .m-item.is-bloq{cursor:default}
+    /* card "Contas do mês" recolhível — depois de lançado ele só atrapalha */
+    .m-lanc-head{cursor:pointer;user-select:none}
+    .m-lanc-seta{margin-left:auto;color:var(--txt-mute);transition:transform var(--t);font-size:.8rem}
+    .m-lanc.is-aberto .m-lanc-seta{transform:rotate(180deg)}
+    .m-lanc:not(.is-aberto) .card-body,
+    .m-lanc:not(.is-aberto) .card-foot{display:none}
 
-    /* casa vaga: presente, porém discreta */
-    .m-vaga{opacity:.62}
-    .m-vaga .card-title{font-weight:600}
+    /* ---- grid compacto de casas ---- */
+    .m-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));
+      align-items:start}
 
-    .m-casa-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between}
-    .m-casa-tot{display:flex;gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+    .mc{padding:0;overflow:hidden}
+    .mc-head{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:1px 10px;
+      padding:9px 11px 5px}
+    .mc-nome{font-size:.95rem;font-weight:800;display:flex;align-items:center;gap:6px;min-width:0}
+    .mc-tot{font-weight:800;font-variant-numeric:tabular-nums;font-size:.95rem;white-space:nowrap}
+    .mc-sub{grid-column:1/-1;font-size:.74rem;color:var(--txt-dim);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .mc .badge{font-size:.62rem;padding:1px 6px}
 
-    .m-edit{border-top:1px dashed var(--line);padding-top:12px;margin-top:4px}
+    .mc-itens{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 11px 8px}
+    .mi{display:flex;align-items:center;gap:6px;min-width:0;padding:6px 8px;margin:0;
+      border:1px solid var(--line);border-left:3px solid var(--line);
+      border-radius:var(--r-sm);background:var(--card-2);cursor:pointer;font-size:.78rem;
+      transition:border-color var(--t),background var(--t)}
+    .mi:hover{background:var(--card-3)}
+    .mi input[type="checkbox"]{width:15px;height:15px;flex:0 0 15px;margin:0;accent-color:var(--brand)}
+    .mi-agua{border-left-color:var(--agua)}
+    .mi-luz{border-left-color:var(--luz)}
+    .mi-outros{border-left-color:var(--outros)}
+    .mi-aluguel{border-left-color:var(--aluguel)}
+    .mi-nome{color:var(--txt-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mi-val{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;
+      font-size:.82rem;white-space:nowrap}
+    .mi.is-pago{opacity:.62}
+    .mi.is-pago .mi-val{color:var(--ok)}
+    .mi.is-zero{opacity:.45;border-left-color:var(--line);cursor:default}
+    .mi.is-bloq{cursor:default}
+    .mi.is-atrasado{border-color:var(--err)}
+
+    /* chip "+ outros": vira botão quando não há valor lançado */
+    .mi-add{justify-content:center;color:var(--txt-mute);border-style:dashed;cursor:pointer;
+      opacity:.8;font-weight:600}
+    .mi-add:hover{color:var(--outros);border-color:var(--outros);opacity:1}
+
+    .mc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+      padding:7px 11px;border-top:1px solid var(--line);background:var(--tint)}
+    .mc-aberto{font-size:.78rem;font-variant-numeric:tabular-nums}
+    .mc-acoes{display:flex;gap:6px;align-items:center}
+    .mc-vaga{opacity:.55}
+    .mc-vaga .mc-itens,.mc-vaga .mc-foot{display:none}
+    .mc-vazio{padding:6px 11px 10px;font-size:.76rem;color:var(--txt-mute)}
+
+    .m-edit{border-top:1px dashed var(--line);padding:10px 11px}
 
     .m-tab-novo{font-weight:800;font-size:1.15rem;min-width:44px}
 
-    .m-sk{height:96px;border-radius:var(--r)}
-    .m-sk-alto{height:220px;border-radius:var(--r)}
+    .m-sk{height:76px;border-radius:var(--r)}
+    .m-sk-alto{height:180px;border-radius:var(--r)}
     .m-acoes{display:flex;gap:10px;flex-wrap:wrap}
-    .m-acoes .btn{flex:1 1 190px}
+    .m-acoes .btn{flex:1 1 170px}
 
-    @media (max-width:520px){
-      .m-item{grid-template-columns:auto 1fr;row-gap:2px}
-      .m-item-val{grid-column:2;text-align:left}
+    @media (max-width:380px){
+      .mc-itens{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -64,7 +102,7 @@
     </section>
   </main>
 
-  <script src="/js/core.js?v=3.1"></script>
+  <script src="/js/core.js?v=3.2"></script>
   <script>
   (function () {
     'use strict';
@@ -76,6 +114,7 @@
     var sel = App.mesAtual();
     var editando = {};    // lancamento_id -> true (painel de edição inline aberto)
     var carregando = false;
+    var lancAberto = null; // card "Lançar contas" expandido? (null = decide pelo mês)
 
     var elTabs = document.getElementById('tabs');
     var elConteudo = document.getElementById('conteudo');
@@ -160,6 +199,7 @@
       if (carregando) return;
       carregando = true;
       editando = {};
+      lancAberto = null;
       skeleton();
       try {
         var p = await App.api('/mes/' + ano + '/' + mes);
@@ -244,8 +284,8 @@
       var bloq = !!dados.mes.fechado;
       elConteudo.innerHTML =
         secTopo(bloq) +
-        secContas(bloq) +
         secKpis() +
+        secContas(bloq) +
         secCasas(bloq) +
         secAcoes(bloq);
     }
@@ -264,10 +304,18 @@
       var agua = dados.agua || { total: 0, moradores_total: 0, valor_por_cabeca: 0 };
       var relogios = dados.relogios || [];
 
-      var h = '<section class="card card-accent-brand">' +
-        '<div class="card-head">' +
-        '<div><div class="card-title">Contas do mês</div>' +
-        '<div class="card-sub">Lance os valores e salve para o sistema calcular o rateio</div></div>' +
+      var luzTotal = relogios.reduce(function (s2, r) { return s2 + (Number(r.valor_total) || 0); }, 0);
+      // mês ainda sem nada lançado começa aberto; já lançado começa fechado (menos rolagem)
+      if (lancAberto === null) lancAberto = !(Number(m.agua_total) > 0 || luzTotal > 0);
+      var resumoLanc = 'Água ' + money(m.agua_total) + ' · Luz ' + money(luzTotal) +
+        ' — toque para ' + (lancAberto ? 'recolher' : 'lançar/editar');
+
+      var h = '<section class="card card-accent-brand m-lanc' + (lancAberto ? ' is-aberto' : '') + '">' +
+        '<div class="card-head m-lanc-head" data-acao="toggle-lanc" role="button" tabindex="0"' +
+        ' aria-expanded="' + (lancAberto ? 'true' : 'false') + '">' +
+        '<div><div class="card-title">Lançar contas do mês</div>' +
+        '<div class="card-sub">' + esc(resumoLanc) + '</div></div>' +
+        '<span class="m-lanc-seta" aria-hidden="true">▾</span>' +
         '</div>' +
         '<div class="card-body stack">';
 
@@ -332,95 +380,117 @@
     function secKpis() {
       var t = dados.totais || {};
       function stat(label, valor, hint, cls) {
-        return '<div class="stat">' +
+        return '<div class="stat ' + (cls || '') + '">' +
           '<div class="stat-label">' + esc(label) + '</div>' +
-          '<div class="stat-value ' + (cls || '') + '">' + valor + '</div>' +
+          '<div class="stat-value">' + valor + '</div>' +
           '<div class="stat-hint">' + hint + '</div></div>';
       }
+      // Água + luz + outros de um lado; aluguel do outro — são cobranças separadas.
       return '<div class="stat-row">' +
-        stat('Total cobrado', money(t.total_cobrado), esc(String(t.casas_ocupadas || 0)) + ' casa(s) ocupada(s)') +
-        stat('Recebido', money(t.total_recebido), 'já pago pelos inquilinos', 'money-paid') +
-        stat('Em aberto', money(t.total_aberto), 'falta receber', 'money-open') +
+        stat('Contas (água+luz+outros)', money(t.contas_cobrado),
+          'recebido ' + money(t.contas_recebido) + ' · aberto ' + money(t.contas_aberto), 'is-agua') +
+        stat('Aluguel', money(t.aluguel_cobrado),
+          'recebido ' + money(t.aluguel_recebido) + ' · aberto ' + money(t.aluguel_aberto), 'is-aluguel') +
+        stat('Em aberto', money(t.total_aberto),
+          'contas ' + money(t.contas_aberto) + ' · aluguel ' + money(t.aluguel_aberto),
+          Number(t.total_aberto) > 0 ? 'is-open' : 'is-ok') +
         stat('Casas pagas', esc(String(t.casas_pagas || 0)) + ' / ' + esc(String((t.casas_pagas || 0) + (t.casas_devendo || 0))),
           esc(String(t.casas_devendo || 0)) + ' devendo · ' + esc(String(t.casas_vagas || 0)) + ' vaga(s)') +
         '</div>';
     }
 
-    // --- lista das casas ---
-    function itemLinha(c, chave, rotulo, badgeCls, venc, bloq) {
+    // --- lista das casas (cards compactos) ---
+    // Cada item vira um "chip" clicável: marcar pago é um toque, e a casa
+    // inteira cabe em ~130px de altura — dá para ver o mês todo sem rolar.
+    function chipItem(c, chave, rotulo, venc, bloq) {
       var valor = Number(c[chave + '_valor']) || 0;
       var pago = !!c[chave + '_pago'];
-      var pagoEm = c[chave + '_pago_em'];
       var zero = valor <= 0;
-      var travado = bloq || zero;
-      var extra = '';
-      if (chave === 'outros' && c.outros_descricao) {
-        extra = '<span class="small truncate">' + esc(c.outros_descricao) + '</span>';
-      }
-      var direita = pago
-        ? '<span class="small muted">pago em ' + esc(App.dataBR(pagoEm)) + '</span>'
-        : (!zero && venc ? badgeVenc(venc) : '');
 
-      return '<label class="m-item' + (zero ? ' is-zero' : '') + (bloq ? ' is-bloq' : '') + (pago ? ' is-pago' : '') + '">' +
-        '<input type="checkbox" class="check js-pago" data-id="' + c.lancamento_id + '" data-item="' + chave + '"' +
+      // "outros" sem valor vira o botão de lançar cobrança avulsa
+      if (zero && chave === 'outros') {
+        if (bloq) return '<span class="mi mi-outros is-zero"><span class="mi-nome">Outros</span>' +
+          '<span class="mi-val dim">—</span></span>';
+        return '<button type="button" class="mi mi-outros mi-add" data-acao="editar-outros" data-id="' +
+          c.lancamento_id + '" title="Lançar uma cobrança avulsa para esta casa">+ outros</button>';
+      }
+
+      var nome = rotulo;
+      if (chave === 'outros' && c.outros_descricao) nome = esc(c.outros_descricao);
+      else nome = esc(rotulo);
+
+      var atrasado = false;
+      var titulo = rotulo;
+      if (!zero && !pago && venc) {
+        var st = App.statusVenc(venc);
+        if (st && st.texto) { titulo = rotulo + ' — ' + st.texto; atrasado = st.dias !== null && st.dias < 0; }
+      }
+      if (pago && c[chave + '_pago_em']) titulo = rotulo + ' — pago em ' + App.dataBR(c[chave + '_pago_em']);
+
+      var travado = bloq || zero;
+      return '<label class="mi mi-' + chave +
+        (zero ? ' is-zero' : '') + (pago ? ' is-pago' : '') + (bloq ? ' is-bloq' : '') +
+        (atrasado ? ' is-atrasado' : '') + '" title="' + esc(titulo) + '">' +
+        '<input type="checkbox" class="js-pago" data-id="' + c.lancamento_id + '" data-item="' + chave + '"' +
         (pago ? ' checked' : '') + dis(travado) +
-        ' aria-label="Marcar ' + esc(rotulo) + ' da casa ' + esc(c.casa_str) + ' como pago">' +
-        '<span class="m-item-info">' +
-        '<span class="badge ' + badgeCls + '">' + esc(rotulo) + '</span>' + extra +
-        (direita ? ' ' + direita : '') +
-        '</span>' +
-        '<span class="m-item-val money ' + (zero ? 'dim' : (pago ? 'money-paid' : 'money-open')) + '">' + money(valor) + '</span>' +
+        ' aria-label="' + esc(rotulo + ' da casa ' + c.casa_str) + '">' +
+        '<span class="mi-nome">' + nome + '</span>' +
+        '<span class="mi-val ' + (zero ? 'dim' : (pago ? 'money-paid' : '')) + '">' +
+        (zero ? '—' : money(valor)) + '</span>' +
         '</label>';
     }
 
     function cardCasa(c, bloq) {
       var m = dados.mes;
       var vaga = !!c.vazia;
-      var h = '<article class="card' + (vaga ? ' m-vaga' : '') + '" data-casa="' + c.casa_id + '">' +
-        '<div class="card-head">' +
-        '<div><div class="card-title">Casa ' + esc(c.casa_str) + ' ' +
-        (vaga ? '<span class="badge badge-dim">vaga</span>'
-          : (c.tudo_pago ? '<span class="badge badge-ok">quitada</span>' : '<span class="badge badge-err">em aberto</span>')) +
-        '</div>' +
-        '<div class="card-sub">' +
-        (vaga ? 'sem inquilino — nada a cobrar'
-          : esc(c.inquilino || 'sem nome') + ' · ' + esc(String(c.moradores || 0)) + ' morador(es) · relógio ' + esc(String(c.relogio))) +
-        '</div></div>' +
-        (vaga ? '' : '<div class="right money-lg money">' + money(c.total_mes) + '</div>') +
-        '</div>';
+
+      var selo = vaga
+        ? '<span class="badge badge-dim">vaga</span>'
+        : (c.tudo_pago ? '<span class="badge badge-ok">ok</span>'
+                       : '<span class="badge badge-err">deve</span>');
+
+      var h = '<article class="card mc' + (vaga ? ' mc-vaga' : '') + '" data-casa="' + c.casa_id + '">' +
+        '<div class="mc-head">' +
+        '<div class="mc-nome"><span>Casa ' + esc(c.casa_str) + '</span>' + selo + '</div>' +
+        (vaga ? '<div></div>' : '<div class="mc-tot money">' + money(c.total_mes) + '</div>') +
+        '<div class="mc-sub">' +
+        (vaga ? 'sem inquilino'
+          : esc(c.inquilino || 'sem nome') + ' · ' + esc(String(c.moradores || 0)) +
+            (Number(c.moradores) === 1 ? ' morador' : ' moradores') + ' · rel. ' + esc(String(c.relogio))) +
+        '</div></div>';
 
       if (vaga) {
-        h += '<div class="card-body"><p class="muted small">Casa desocupada neste mês: não entra no rateio da água nem da luz.</p></div>';
-        h += '</article>';
+        h += '<div class="mc-vazio">Fora do rateio de água e luz neste mês.</div></article>';
         return h;
       }
 
-      h += '<div class="card-body">' +
-        itemLinha(c, 'agua', 'Água', 'badge-agua', m.agua_vencimento, bloq) +
-        itemLinha(c, 'luz', 'Luz', 'badge-luz', vencDoRelogio(c.relogio), bloq) +
-        itemLinha(c, 'outros', 'Outros', 'badge-outros', null, bloq) +
-        itemLinha(c, 'aluguel', 'Aluguel', 'badge-aluguel', m.aluguel_vencimento, bloq);
+      h += '<div class="mc-itens">' +
+        chipItem(c, 'agua', 'Água', m.agua_vencimento, bloq) +
+        chipItem(c, 'luz', 'Luz', vencDoRelogio(c.relogio), bloq) +
+        chipItem(c, 'outros', 'Outros', null, bloq) +
+        chipItem(c, 'aluguel', 'Aluguel', m.aluguel_vencimento, bloq) +
+        '</div>';
 
-      if (c.obs) h += '<p class="muted small">' + esc(c.obs) + '</p>';
-      if (c.wa_enviado_em) h += '<p class="dim small">Mensagem enviada em ' + esc(App.dataBR(String(c.wa_enviado_em).slice(0, 10))) + '</p>';
-
-      if (editando[c.lancamento_id]) h += painelEdicao(c);
-      h += '</div>';
-
-      h += '<div class="card-foot m-casa-foot">' +
-        '<div class="m-casa-tot">' +
-        '<span class="small"><span class="muted">Total </span><b class="money">' + money(c.total_mes) + '</b></span>' +
-        '<span class="small"><span class="muted">Pago </span><b class="money money-paid">' + money(c.total_pago) + '</b></span>' +
-        '<span class="small"><span class="muted">Em aberto </span><b class="money ' + (Number(c.total_aberto) > 0 ? 'money-open' : 'money-paid') + '">' + money(c.total_aberto) + '</b></span>' +
-        (c.quitado_em ? '<span class="badge badge-ok">quitado em ' + esc(App.dataBR(c.quitado_em)) + '</span>' : '') +
-        '</div>' +
-        '<div class="row">' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-acao="editar" data-id="' + c.lancamento_id + '"' + dis(bloq) + '>' +
-        (editando[c.lancamento_id] ? 'Fechar edição' : 'Editar valores') + '</button>' +
+      h += '<div class="mc-foot">' +
+        '<span class="mc-aberto">' +
+        (Number(c.total_aberto) > 0
+          ? '<span class="muted">contas </span><b class="money ' + (Number(c.contas_aberto) > 0 ? 'money-open' : 'money-paid') + '">' +
+            money(c.contas_aberto) + '</b>' +
+            ' <span class="muted">· aluguel </span><b class="money ' + (Number(c.total_aberto) - Number(c.contas_aberto) > 0 ? 'money-open' : 'money-paid') + '">' +
+            money(Number(c.total_aberto) - Number(c.contas_aberto)) + '</b>'
+          : '<b class="money money-paid">tudo pago</b>' +
+            (c.quitado_em ? ' <span class="dim">' + esc(App.dataCurta(c.quitado_em)) + '</span>' : '')) +
+        '</span>' +
+        '<span class="mc-acoes">' +
+        '<button type="button" class="btn btn-ghost btn-sm btn-icon" data-acao="editar" data-id="' + c.lancamento_id + '"' +
+        dis(bloq) + ' title="Editar outros e aluguel" aria-label="Editar valores da casa ' + esc(c.casa_str) + '">✎</button>' +
         (c.tudo_pago
-          ? '<button type="button" class="btn btn-outline btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="0"' + dis(bloq) + '>Desfazer quitação</button>'
-          : '<button type="button" class="btn btn-primary btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="1"' + dis(bloq) + '>Quitar tudo</button>') +
-        '</div></div>';
+          ? '<button type="button" class="btn btn-outline btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="0"' + dis(bloq) + '>Desfazer</button>'
+          : '<button type="button" class="btn btn-primary btn-sm" data-acao="quitar" data-id="' + c.lancamento_id + '" data-pago="1"' + dis(bloq) + '>Quitar</button>') +
+        '</span></div>';
+
+      if (c.obs) h += '<div class="mc-vazio">' + esc(c.obs) + '</div>';
+      if (editando[c.lancamento_id]) h += painelEdicao(c);
 
       h += '</article>';
       return h;
@@ -428,7 +498,7 @@
 
     function painelEdicao(c) {
       var id = c.lancamento_id;
-      return '<div class="m-edit stack">' +
+      return '<div class="m-edit stack" data-edit="' + id + '">' +
         '<div class="form-grid">' +
         '<div class="field"><label class="field-label" for="e-outros-' + id + '">Outros (R$)</label>' +
         '<div class="input-money"><input class="input" id="e-outros-' + id + '" type="text" inputmode="decimal" placeholder="0,00" value="' +
@@ -461,7 +531,7 @@
           '<p class="muted small">Cadastre as casas para começar a lançar.</p>' +
           '<p><a class="btn btn-primary" href="/casas">Ir para Casas</a></p></div>';
       }
-      var h = '<h2 class="m-tit">Casas</h2><div class="stack">';
+      var h = '<h2 class="m-sec-tit">Casas</h2><div class="m-grid">';
       casas.forEach(function (c) { h += cardCasa(c, bloq); });
       return h + '</div>';
     }
@@ -476,7 +546,7 @@
         (bloq ? 'Reabrir mês' : 'Fechar mês') + '</button>' +
         '<button type="button" class="btn btn-danger" data-acao="limpar-mes"' + dis(bloq) + '>Limpar mês</button>' +
         '</div>' +
-        '<div class="card-foot"><p class="muted small">Limpar zera contas, vencimentos, "outros" e as marcações de pagamento de ' +
+        '<div class="card-foot"><p class="dim small">Limpar zera contas, vencimentos, "outros" e as marcações de pagamento de ' +
         esc(m.label || '') + '. Inquilinos, moradores e aluguel são mantidos.</p></div>' +
         '</section>';
     }
@@ -611,10 +681,20 @@
       } else if (acao === 'salvar-mes') {
         ev.preventDefault();
         salvarMes(btn);
+      } else if (acao === 'toggle-lanc') {
+        ev.preventDefault();
+        lancAberto = !lancAberto;
+        render();
       } else if (acao === 'editar') {
         ev.preventDefault();
         if (editando[id]) delete editando[id]; else editando[id] = true;
         render();
+      } else if (acao === 'editar-outros') {
+        ev.preventDefault();
+        editando[id] = true;
+        render();
+        var campo = document.getElementById('e-outros-' + id);
+        if (campo) { campo.focus(); campo.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
       } else if (acao === 'cancelar-edit') {
         ev.preventDefault();
         delete editando[id];
@@ -632,6 +712,15 @@
         ev.preventDefault();
         fecharMes(btn.getAttribute('data-fechado') === '1', btn);
       }
+    });
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var alvo = ev.target && ev.target.closest ? ev.target.closest('[data-acao="toggle-lanc"]') : null;
+      if (!alvo) return;
+      ev.preventDefault();
+      lancAberto = !lancAberto;
+      render();
     });
 
     document.addEventListener('change', function (ev) {

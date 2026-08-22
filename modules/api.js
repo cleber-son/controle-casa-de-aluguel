@@ -179,7 +179,17 @@ router.put('/casas/:id', h((req, res) => {
   }
   const set = campos.map((k) => `${k} = ?`).join(', ');
   db.prepare(`UPDATE casas SET ${set} WHERE id = ?`).run(...campos.map((k) => c[k]), id);
-  res.json({ ok: true });
+
+  // Reflete a mudança nos meses ainda abertos: sem isso, alterar moradores
+  // (ou inquilino/aluguel/relógio) aqui não mexia no mês já criado.
+  const RELEVANTES = ['inquilino', 'moradores', 'aluguel', 'relogio', 'peso_luz', 'ativa'];
+  const mudou = RELEVANTES.some((k) => c[k] !== undefined && c[k] !== casa[k]);
+  let mesesSincronizados = 0;
+  if (mudou) {
+    const atualizada = db.prepare('SELECT * FROM casas WHERE id = ?').get(id);
+    mesesSincronizados = calc.sincronizarCasa(casa, atualizada);
+  }
+  res.json({ ok: true, meses_sincronizados: mesesSincronizados });
 }));
 
 router.delete('/casas/:id', h((req, res) => {
@@ -426,12 +436,21 @@ function resumoDoMes(mesRow) {
   const luzTotal = db.prepare(
     'SELECT COALESCE(SUM(valor_total), 0) AS s FROM contas_luz WHERE mes_id = ?').get(mesRow.id).s;
   const itens = ['agua', 'luz', 'outros', 'aluguel'];
+  const CONTAS = ['agua', 'luz', 'outros'];
   let cobrado = 0; let recebido = 0;
+  let contasCobrado = 0; let contasRecebido = 0;
+  let aluguelCobrado = 0; let aluguelRecebido = 0;
+  const porItem = { agua: 0, luz: 0, outros: 0, aluguel: 0 };
   let ocupadas = 0; let pagas = 0;
   for (const l of lancs) {
     for (const it of itens) {
-      cobrado += l[`${it}_valor`];
-      if (l[`${it}_pago`]) recebido += l[`${it}_valor`];
+      const v = l[`${it}_valor`];
+      const p = l[`${it}_pago`] ? v : 0;
+      cobrado += v;
+      recebido += p;
+      porItem[it] += v;
+      if (CONTAS.includes(it)) { contasCobrado += v; contasRecebido += p; }
+      else { aluguelCobrado += v; aluguelRecebido += p; }
     }
     if (!l.vazia) {
       ocupadas += 1;
@@ -445,6 +464,15 @@ function resumoDoMes(mesRow) {
     label: calc.labelMes(mesRow.ano, mesRow.mes),
     agua_total: calc.round2(mesRow.agua_total),
     luz_total: calc.round2(luzTotal),
+    agua_cobrado: calc.round2(porItem.agua),
+    luz_cobrado: calc.round2(porItem.luz),
+    outros_cobrado: calc.round2(porItem.outros),
+    aluguel_cobrado: calc.round2(porItem.aluguel),
+    contas_cobrado: calc.round2(contasCobrado),
+    contas_recebido: calc.round2(contasRecebido),
+    contas_aberto: calc.round2(contasCobrado - contasRecebido),
+    aluguel_recebido: calc.round2(aluguelRecebido),
+    aluguel_aberto: calc.round2(aluguelCobrado - aluguelRecebido),
     total_cobrado: calc.round2(cobrado),
     total_recebido: calc.round2(recebido),
     total_aberto: calc.round2(cobrado - recebido),
@@ -458,7 +486,7 @@ function resumoDoMes(mesRow) {
 router.get('/historico', h((req, res) => {
   const ini = calc.INICIO_PERIODO;
   const mesesRows = db.prepare(`
-    SELECT * FROM meses WHERE (ano * 100 + mes) >= ? ORDER BY ano DESC, mes DESC
+    SELECT * FROM meses WHERE (ano * 100 + mes) >= ? ORDER BY ano, mes
   `).all(ini.ano * 100 + ini.mes);
   const meses = mesesRows.map(resumoDoMes);
   res.json({

@@ -130,6 +130,10 @@ function ratear(total, itens, peso) {
 
 const ITENS = ['agua', 'luz', 'outros', 'aluguel'];
 
+// O dono cobra o aluguel separado das contas: água, luz e "outros" andam juntos
+// (é isso que vai nas mensagens de WhatsApp), o aluguel é combinado à parte.
+const ITENS_CONTAS = ['agua', 'luz', 'outros'];
+
 // true se a casa está vazia OU se todo item com valor > 0 está pago.
 function totalmentePago(l) {
   if (l.vazia) return true;
@@ -172,6 +176,66 @@ const marcarPago = db.transaction((lancId, item, pago) => {
   atualizarQuitado(lancId);
 });
 
+/**
+ * Aplica uma alteração do cadastro da casa nos lançamentos dos meses ABERTOS.
+ *
+ * Sem isso, mudar "moradores" (ou o inquilino, ou o aluguel padrão) em /casas
+ * não tinha efeito nenhum no mês já criado: `garantirMes` usa INSERT OR IGNORE,
+ * então o lançamento existente ficava com o número antigo e o rateio da água
+ * continuava errado. Era exatamente o que acontecia com a casa 07.
+ *
+ * O que sincroniza, e por quê:
+ *  - moradores / inquilino / vazia → sempre. São dados de cadastro; a tela do
+ *    mês não permite editá-los por lançamento, logo não há ajuste manual a perder.
+ *  - aluguel_valor → só se ainda estiver no valor padrão ANTIGO da casa e não
+ *    estiver marcado como pago. Se estiver diferente, alguém ajustou o aluguel
+ *    daquele mês na mão e esse ajuste tem prioridade.
+ *
+ * Mês fechado nunca é tocado — ele é a fotografia do histórico.
+ */
+const sincronizarCasa = db.transaction((casaAntiga, casaNova) => {
+  const abertos = db.prepare('SELECT id FROM meses WHERE fechado = 0').all();
+  if (!abertos.length) return 0;
+
+  const vazia = !String(casaNova.inquilino || '').trim() || !casaNova.ativa ? 1 : 0;
+  const padraoAntigo = round2(casaAntiga.aluguel);
+  let tocados = 0;
+
+  for (const mes of abertos) {
+    const l = db.prepare('SELECT * FROM lancamentos WHERE mes_id = ? AND casa_id = ?')
+      .get(mes.id, casaNova.id);
+    if (!l) continue;
+
+    const upd = {
+      inquilino: casaNova.inquilino || '',
+      vazia,
+      moradores: casaNova.moradores,
+    };
+
+    if (vazia) {
+      upd.aluguel_valor = 0;                                 // casa vaga não paga aluguel
+    } else if (!l.aluguel_pago &&
+               (round2(l.aluguel_valor) === padraoAntigo || round2(l.aluguel_valor) === 0)) {
+      upd.aluguel_valor = round2(casaNova.aluguel);          // ainda no padrão → acompanha
+    }
+
+    const campos = Object.keys(upd);
+    db.prepare(`UPDATE lancamentos SET ${campos.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
+      .run(...campos.map((k) => upd[k]), l.id);
+
+    // garante a conta de luz do relógio novo, caso a casa tenha mudado de relógio
+    db.prepare('INSERT OR IGNORE INTO contas_luz (mes_id, relogio) VALUES (?, ?)')
+      .run(mes.id, casaNova.relogio);
+
+    tocados += 1;
+  }
+
+  // rateio de água (moradores) e de luz (relógio/peso) muda junto
+  for (const mes of abertos) recalcularMes(mes.id);
+
+  return tocados;
+});
+
 // ── PAYLOAD DE MÊS (contrato da seção 4 da spec) ─────────────────
 
 function carregarMes(ano, mes) {
@@ -211,6 +275,10 @@ function carregarMes(ano, mes) {
     const totalMes = round2(l.agua_valor + l.luz_valor + l.outros_valor + l.aluguel_valor);
     const totalPago = round2(ITENS.reduce(
       (s, it) => s + (l[`${it}_pago`] ? l[`${it}_valor`] : 0), 0));
+    // "contas" = agua + luz + outros (o que vai nas mensagens de WhatsApp).
+    const contasValor = round2(l.agua_valor + l.luz_valor + l.outros_valor);
+    const contasPago = round2(ITENS_CONTAS.reduce(
+      (s, it) => s + (l[`${it}_pago`] ? l[`${it}_valor`] : 0), 0));
     return {
       lancamento_id: l.id,
       casa_id: l.casa_id,
@@ -238,6 +306,10 @@ function carregarMes(ano, mes) {
       total_mes: totalMes,
       total_pago: totalPago,
       total_aberto: round2(totalMes - totalPago),
+      contas_valor: contasValor,
+      contas_pago: contasPago,
+      contas_aberto: round2(contasValor - contasPago),
+      contas_quitadas: ITENS_CONTAS.every((it) => !(l[`${it}_valor`] > 0) || !!l[`${it}_pago`]),
       tudo_pago: totalmentePago(l),
       quitado_em: l.quitado_em || null,
       obs: l.obs || null,
@@ -258,11 +330,22 @@ function carregarMes(ano, mes) {
   const descMae = round2(descontos.filter((d) => d.destinatario === 'mae')
     .reduce((s, d) => s + d.valor, 0));
 
+  // "Contas" = agua + luz + outros. O aluguel e cobrado a parte (e nao entra
+  // nas mensagens de WhatsApp), por isso os dois lados andam separados aqui.
+  const contasCobrado = soma((c) => c.contas_valor);
+  const contasRecebido = soma((c) => c.contas_pago);
+  const aluguelCobrado = soma((c) => c.aluguel_valor);
+
   const totais = {
     agua_cobrado: soma((c) => c.agua_valor),
     luz_cobrado: soma((c) => c.luz_valor),
     outros_cobrado: soma((c) => c.outros_valor),
-    aluguel_cobrado: soma((c) => c.aluguel_valor),
+    aluguel_cobrado: aluguelCobrado,
+    contas_cobrado: contasCobrado,
+    contas_recebido: contasRecebido,
+    contas_aberto: round2(contasCobrado - contasRecebido),
+    aluguel_recebido: totalRecebidoAluguel,
+    aluguel_aberto: round2(aluguelCobrado - totalRecebidoAluguel),
     total_cobrado: soma((c) => c.total_mes),
     total_recebido: soma((c) => c.total_pago),
     total_aberto: soma((c) => c.total_aberto),
@@ -320,5 +403,6 @@ module.exports = {
   totalmentePago,
   atualizarQuitado,
   marcarPago,
+  sincronizarCasa,
   carregarMes,
 };
