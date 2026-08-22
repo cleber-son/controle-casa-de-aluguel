@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Histórico</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.2">
+  <link rel="stylesheet" href="/css/app.css?v=3.3">
   <style>
     /* --- específico da página de histórico --- */
     .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -37,6 +37,30 @@
     .seg-outros{background:var(--outros)}
     .seg-aluguel{background:var(--aluguel)}
     .bar-val{text-align:right;font-size:.85rem;white-space:nowrap}
+    /* gráfico de barras verticais (colunas) — só CSS.
+       .gc-track tem altura fixa; .gc-fill usa % dessa altura (é o que dá a
+       proporção entre os meses); dentro do fill, cada .gc-seg usa % do fill. */
+    .gc{display:flex;align-items:flex-end;gap:14px;padding:8px 2px 0;overflow-x:auto}
+    .gc-col{flex:1 1 0;min-width:54px;display:flex;flex-direction:column;align-items:center;gap:6px}
+    .gc-val{font-size:.78rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--txt)}
+    .gc-track{width:100%;max-width:66px;height:180px;display:flex;flex-direction:column;
+      justify-content:flex-end;background:var(--card-2);border:1px solid var(--line);
+      border-radius:var(--r-sm) var(--r-sm) 0 0;overflow:hidden}
+    .gc-fill{width:100%;display:flex;flex-direction:column-reverse;overflow:hidden}
+    .gc-seg{width:100%;display:block}
+    .gc-base{width:100%;max-width:66px;height:2px;background:var(--line-2);border-radius:2px}
+    .gc-lbl{font-size:.76rem;color:var(--txt-dim);white-space:nowrap}
+    .gc-col.is-alto .gc-val{color:var(--err)}
+    .gc-media{font-size:.78rem;color:var(--txt-mute)}
+    @media (max-width:560px){
+      .gc{gap:9px}
+      .gc-col{min-width:46px}
+      .gc-val{font-size:.68rem}
+      .gc-lbl{font-size:.7rem}
+      .gc-track{height:140px}
+    }
+    @media print{ .gc-seg{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
+
     .legenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:.8rem;color:var(--txt-dim)}
     .legenda span{display:inline-flex;align-items:center;gap:6px}
     .chip{width:11px;height:11px;border-radius:3px;display:inline-block}
@@ -135,7 +159,7 @@
     <div id="painel"><div class="skeleton" style="height:220px"></div></div>
   </main>
 
-  <script src="/js/core.js?v=3.2"></script>
+  <script src="/js/core.js?v=3.3"></script>
   <script>
   (function () {
     App.mount('historico');
@@ -227,8 +251,6 @@
           '</div></div></div>';
         return;
       }
-      var f = 100 / max;
-
       var media = meses.reduce(function (s2, m) { return s2 + (Number(m.contas_cobrado) || 0); }, 0) / meses.length;
       var ultimo = meses[meses.length - 1];
 
@@ -236,19 +258,29 @@
         '<div class="card-head"><div>' +
         '<div class="card-title">Evolução das contas</div>' +
         '<div class="card-sub">água, luz e outros — mês a mês (aluguel não entra)</div></div>' +
-        '<div class="right small muted">média ' + App.money(media) + '</div></div>' +
-        '<div class="card-body"><div class="chart">';
+        '<div class="right gc-media">média ' + App.money(media) + '</div></div>' +
+        '<div class="card-body"><div class="gc">';
 
+      // Uma coluna por mês. A altura de cada faixa é proporcional ao maior mês,
+      // então dá para comparar os meses de bate-pronto.
       meses.forEach(function (m) {
         var total = Number(m.contas_cobrado) || 0;
-        h += '<div class="bar-row">' +
-          '<div class="bar-lbl">' + E(labelCurto(m.ano, m.mes)) + '</div>' +
-          '<div class="bar-track" role="img" aria-label="' + E(m.label + ': contas ' + App.money(total)) + '"' +
-            ' title="' + E('Água ' + App.money(m.agua_cobrado) + ' · Luz ' + App.money(m.luz_cobrado) +
-                           ' · Outros ' + App.money(m.outros_cobrado)) + '">' +
-            seg('agua', m.agua_cobrado, f) + seg('luz', m.luz_cobrado, f) + seg('outros', m.outros_cobrado, f) +
+        var alturaPct = max > 0 ? (total / max) * 100 : 0;
+        var dica = 'Água ' + App.money(m.agua_cobrado) + ' · Luz ' + App.money(m.luz_cobrado) +
+                   ' · Outros ' + App.money(m.outros_cobrado);
+        h += '<div class="gc-col' + (total > 0 && total >= max ? ' is-alto' : '') + '">' +
+          '<div class="gc-val">' + (total > 0 ? App.money(total) : '—') + '</div>' +
+          '<div class="gc-track" role="img"' +
+            ' aria-label="' + E(m.label + ': contas ' + App.money(total) + '. ' + dica) + '"' +
+            ' title="' + E(m.label + ' — ' + dica) + '">' +
+            '<div class="gc-fill" style="height:' + (total > 0 ? Math.max(alturaPct, 3).toFixed(2) : '0') + '%">' +
+              colSeg('agua', m.agua_cobrado, total) +
+              colSeg('luz', m.luz_cobrado, total) +
+              colSeg('outros', m.outros_cobrado, total) +
+            '</div>' +
           '</div>' +
-          '<div class="bar-val money">' + App.money(total) + '</div>' +
+          '<div class="gc-base"></div>' +
+          '<div class="gc-lbl">' + E(labelCurto(m.ano, m.mes)) + '</div>' +
         '</div>';
       });
 
@@ -263,6 +295,14 @@
 
       h += '</div></div>';
       elGrafico.innerHTML = h;
+    }
+
+    // faixa de uma coluna: percentual do item dentro do total daquele mês
+    function colSeg(nome, valor, total) {
+      valor = Number(valor) || 0;
+      if (valor <= 0 || !(total > 0)) return '';
+      return '<span class="gc-seg seg-' + nome + '" style="height:' +
+        ((valor / total) * 100).toFixed(2) + '%"></span>';
     }
 
     /* ---------------- abas ---------------- */
@@ -584,7 +624,7 @@
         '<div><div class="card-title">Evolução mês a mês</div><div class="card-sub">valor cobrado, por item</div></div></div>' +
         '<div class="card-body"><div class="chart">';
       ordem.forEach(function (i) {
-        var f = 100 / max;
+  
         h += '<div class="bar-row">' +
           '<div class="bar-lbl">' + E(labelCurto(i.ano, i.mes)) + '</div>' +
           '<div class="bar-track" role="img" aria-label="' + E(i.label + ': ' + App.money(i.total_mes)) + '">' +

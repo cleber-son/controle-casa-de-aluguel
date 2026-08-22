@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Mês</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.2">
+  <link rel="stylesheet" href="/css/app.css?v=3.3">
   <style>
     /* Regras específicas da tela de Mês (usam os tokens do app.css) */
     .m-tit{font-size:1.25rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.3px}
@@ -30,34 +30,37 @@
     .m-lanc:not(.is-aberto) .card-body,
     .m-lanc:not(.is-aberto) .card-foot{display:none}
 
-    /* ---- grid compacto de casas ---- */
-    .m-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));
-      align-items:start}
+    /* ---- grid de casas ---- */
+    /* stretch (e não start) + rodapé empurrado para baixo = todos os cards de
+       uma linha terminam na mesma altura, mesmo com nomes de tamanhos diferentes. */
+    .m-grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+      align-items:stretch}
 
-    .mc{padding:0;overflow:hidden}
-    .mc-head{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:1px 10px;
-      padding:9px 11px 5px}
-    .mc-nome{font-size:.95rem;font-weight:800;display:flex;align-items:center;gap:6px;min-width:0}
-    .mc-tot{font-weight:800;font-variant-numeric:tabular-nums;font-size:.95rem;white-space:nowrap}
-    .mc-sub{grid-column:1/-1;font-size:.74rem;color:var(--txt-dim);
+    .mc{padding:0;overflow:hidden;display:flex;flex-direction:column}
+    .mc-head{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:2px 12px;
+      padding:13px 15px 8px}
+    .mc-nome{font-size:1.12rem;font-weight:800;display:flex;align-items:center;gap:8px;min-width:0}
+    .mc-tot{font-weight:800;font-variant-numeric:tabular-nums;font-size:1.12rem;white-space:nowrap}
+    .mc-sub{grid-column:1/-1;font-size:.84rem;color:var(--txt-dim);
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .mc .badge{font-size:.62rem;padding:1px 6px}
+    .mc .badge{font-size:.68rem;padding:2px 7px}
 
-    .mc-itens{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 11px 8px}
-    .mi{display:flex;align-items:center;gap:6px;min-width:0;padding:6px 8px;margin:0;
-      border:1px solid var(--line);border-left:3px solid var(--line);
-      border-radius:var(--r-sm);background:var(--card-2);cursor:pointer;font-size:.78rem;
+    .mc-itens{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 15px 12px}
+    .mi{display:flex;align-items:center;gap:9px;min-width:0;padding:10px 11px;margin:0;
+      min-height:46px;
+      border:1px solid var(--line);border-left:4px solid var(--line);
+      border-radius:var(--r-sm);background:var(--card-2);cursor:pointer;font-size:.9rem;
       transition:border-color var(--t),background var(--t)}
     .mi:hover{background:var(--card-3)}
-    .mi input[type="checkbox"]{width:15px;height:15px;flex:0 0 15px;margin:0;accent-color:var(--brand)}
+    .mi input[type="checkbox"]{width:19px;height:19px;flex:0 0 19px;margin:0;accent-color:var(--brand);cursor:pointer}
     .mi-agua{border-left-color:var(--agua)}
     .mi-luz{border-left-color:var(--luz)}
     .mi-outros{border-left-color:var(--outros)}
     .mi-aluguel{border-left-color:var(--aluguel)}
     .mi-nome{color:var(--txt-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mi-val{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;
-      font-size:.82rem;white-space:nowrap}
-    .mi.is-pago{opacity:.62}
+      font-size:.95rem;white-space:nowrap}
+    .mi.is-pago{opacity:.65}
     .mi.is-pago .mi-val{color:var(--ok)}
     .mi.is-zero{opacity:.45;border-left-color:var(--line);cursor:default}
     .mi.is-bloq{cursor:default}
@@ -65,18 +68,18 @@
 
     /* chip "+ outros": vira botão quando não há valor lançado */
     .mi-add{justify-content:center;color:var(--txt-mute);border-style:dashed;cursor:pointer;
-      opacity:.8;font-weight:600}
+      opacity:.85;font-weight:600;font-size:.88rem}
     .mi-add:hover{color:var(--outros);border-color:var(--outros);opacity:1}
 
-    .mc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
-      padding:7px 11px;border-top:1px solid var(--line);background:var(--tint)}
-    .mc-aberto{font-size:.78rem;font-variant-numeric:tabular-nums}
-    .mc-acoes{display:flex;gap:6px;align-items:center}
-    .mc-vaga{opacity:.55}
+    .mc-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+      padding:11px 15px;border-top:1px solid var(--line);background:var(--tint);margin-top:auto}
+    .mc-aberto{font-size:.88rem;font-variant-numeric:tabular-nums}
+    .mc-acoes{display:flex;gap:8px;align-items:center}
+    .mc-vaga{opacity:.6}
     .mc-vaga .mc-itens,.mc-vaga .mc-foot{display:none}
-    .mc-vazio{padding:6px 11px 10px;font-size:.76rem;color:var(--txt-mute)}
+    .mc-vazio{padding:8px 15px 14px;font-size:.84rem;color:var(--txt-mute)}
 
-    .m-edit{border-top:1px dashed var(--line);padding:10px 11px}
+    .m-edit{border-top:1px dashed var(--line);padding:14px 15px}
 
     .m-tab-novo{font-weight:800;font-size:1.15rem;min-width:44px}
 
@@ -85,8 +88,9 @@
     .m-acoes{display:flex;gap:10px;flex-wrap:wrap}
     .m-acoes .btn{flex:1 1 170px}
 
-    @media (max-width:380px){
+    @media (max-width:400px){
       .mc-itens{grid-template-columns:1fr}
+      .mc-nome,.mc-tot{font-size:1.02rem}
     }
   </style>
 </head>
@@ -102,7 +106,7 @@
     </section>
   </main>
 
-  <script src="/js/core.js?v=3.2"></script>
+  <script src="/js/core.js?v=3.3"></script>
   <script>
   (function () {
     'use strict';

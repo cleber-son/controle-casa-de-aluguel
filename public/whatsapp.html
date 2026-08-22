@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — WhatsApp</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.2">
+  <link rel="stylesheet" href="/css/app.css?v=3.3">
   <style>
     /* --- regras específicas da tela de WhatsApp (usa só os tokens do app.css) --- */
     .wa-steps{display:flex;gap:8px;margin:14px 0 18px}
@@ -72,7 +72,7 @@
     <div id="wa-teste"></div>
   </main>
 
-  <script src="/js/core.js?v=3.2"></script>
+  <script src="/js/core.js?v=3.3"></script>
   <script>
   (function () {
     'use strict';
@@ -480,7 +480,10 @@
           '</div>'
         : '<div class="wa-bubble">' + esc(txt) + '</div>' +
           '<div class="wa-actions">' +
-            '<button class="btn btn-outline btn-sm" data-act="editar" data-casa="' + m.casa_id + '" type="button">Editar texto</button>' +
+            '<button class="btn btn-outline btn-sm" data-act="copiar-preview" data-casa="' + m.casa_id + '" type="button">📋 Copiar texto</button>' +
+            '<a class="btn btn-wa btn-sm" href="' + esc(urlDe(m)) + '" target="_blank" rel="noopener"' +
+              ' data-act="abrir-preview" data-casa="' + m.casa_id + '">💬 Abrir WhatsApp</a>' +
+            '<button class="btn btn-ghost btn-sm" data-act="editar" data-casa="' + m.casa_id + '" type="button">Editar texto</button>' +
             (editado(m) ? '<button class="btn btn-ghost btn-sm" data-act="reverter" data-casa="' + m.casa_id + '" type="button">Reverter ao original</button>' : '') +
           '</div>';
 
@@ -543,6 +546,7 @@
         '</div>' +
         '<div class="card-foot">' +
           '<div class="wa-actions" style="width:100%">' +
+            '<button class="btn btn-outline btn-lg" data-act="copiar-todas" type="button">📋 Copiar todas</button>' +
             '<button class="btn btn-ghost btn-lg" data-act="voltar-preview" type="button">Voltar ao preview</button>' +
             '<button class="btn btn-primary btn-lg" data-act="confirmar" type="button"' + (lista.length ? '' : ' disabled') + '>' +
               'Confirmar envio' +
@@ -858,6 +862,17 @@
       if (act === 'ver-tudo') {
         if (state.abertos.has(casaId)) state.abertos.delete(casaId); else state.abertos.add(casaId);
         atualizarFila([casaId]);
+        return;
+      }
+
+      if (act === 'copiar-preview') {
+        var mp = porId(casaId);
+        if (mp) App.copiar(textoDe(mp));
+        return;
+      }
+
+      if (act === 'abrir-preview') {
+        marcarEnviado([casaId]);
         return;
       }
 

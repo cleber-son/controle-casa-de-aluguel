@@ -110,12 +110,6 @@ function linhaCobranca(it) {
   return `${it.emoji} ${it.nome}: *${moeda(it.valor)}*${venc}`;
 }
 
-function fraseRateio(ctx) {
-  const m = ctx.moradores;
-  const pessoas = m === 1 ? '1 morador' : `${m} moradores`;
-  return `_Água dividida por pessoa (${pessoas} no mês) e luz dividida entre as casas do relógio ${ctx.relogio}._`;
-}
-
 function msgCobranca(ctx) {
   const itens = itensDoCtx(ctx);
   const cab = `🏠 *Casa ${ctx.casa_str} — ${ctx.inquilino}*\nContas de *${ctx.label}*`;
@@ -128,7 +122,7 @@ function msgCobranca(ctx) {
   if (!aberto.length) {
     return `${cab}\n\n${linhas}\n\n🎉 *Tudo pago! Muito obrigado, ${ctx.inquilino}!* 🙏`;
   }
-  return `${cab}\n\n${linhas}\n\n💰 *TOTAL DAS CONTAS: ${moeda(totalAberto)}*\n\n${fraseRateio(ctx)}\n_O aluguel é combinado à parte._\nQualquer dúvida é só chamar 🙏`;
+  return `${cab}\n\n${linhas}\n\n💰 *TOTAL DAS CONTAS: ${moeda(totalAberto)}*\n\nQualquer dúvida é só chamar 🙏`;
 }
 
 function msgLembrete(ctx) {
