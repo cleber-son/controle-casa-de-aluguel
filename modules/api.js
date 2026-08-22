@@ -440,6 +440,33 @@ router.post('/mensagens/teste', h((req, res) => {
   });
 }));
 
+// ── Cobrança consolidada por inquilino ───────────────────────────
+
+router.get('/pendencias', h((req, res) => {
+  res.json(msgs.listarPendencias());
+}));
+
+router.get('/pendencias/:casa_id', h((req, res) => {
+  const casaId = toInt(req.params.casa_id);
+  if (Number.isNaN(casaId)) throw new Error('Casa inválida');
+  const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(casaId);
+  if (!casa) return falha(res, 404, 'Casa não encontrada');
+  const m = msgs.gerarMensagemPendencias(casaId);
+  const tel = msgs.normalizarTelefone(casa.telefone);
+  res.json({
+    casa_id: casa.id,
+    numero: casa.numero,
+    casa_str: String(casa.numero).padStart(2, '0'),
+    inquilino: casa.inquilino || '',
+    telefone: tel,
+    tem_telefone: !!tel,
+    texto: m.texto,
+    total_aberto: m.total_aberto,
+    qtd_meses: m.qtd_meses,
+    wa_url: msgs.waUrl(tel, m.texto),
+  });
+}));
+
 // ── Histórico ────────────────────────────────────────────────────
 
 function resumoDoMes(mesRow) {

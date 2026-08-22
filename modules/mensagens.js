@@ -213,6 +213,115 @@ function gerarMensagensDoMes(ano, mes, modelo) {
   };
 }
 
+// ── Cobrança consolidada por inquilino ───────────────────────────
+//
+// Junta TODOS os meses em que a casa ainda deve contas, num texto só.
+// Lê direto dos lançamentos (valores já rateados), sem recalcular nada.
+// Igual ao resto: o aluguel não entra (é cobrado à parte).
+
+const ITENS_CONTAS_MSG = [
+  { chave: 'agua',   emoji: '💧', nome: 'Água' },
+  { chave: 'luz',    emoji: '💡', nome: 'Luz' },
+  { chave: 'outros', emoji: '📦', nome: 'Outros' },
+];
+
+// [{ ano, mes, label, itens:[{nome,valor}], subtotal }] — só meses com saldo
+function mesesEmAberto(casaId) {
+  const ini = calc.INICIO_PERIODO;
+  const rows = db.prepare(`
+    SELECT l.*, m.ano, m.mes
+    FROM lancamentos l JOIN meses m ON m.id = l.mes_id
+    WHERE l.casa_id = ? AND (m.ano * 100 + m.mes) >= ?
+    ORDER BY m.ano, m.mes
+  `).all(casaId, ini.ano * 100 + ini.mes);
+
+  const out = [];
+  for (const l of rows) {
+    if (l.vazia) continue;
+    const itens = [];
+    for (const def of ITENS_CONTAS_MSG) {
+      const valor = calc.round2(l[`${def.chave}_valor`]);
+      if (!(valor > 0) || l[`${def.chave}_pago`]) continue;
+      const nome = def.chave === 'outros'
+        ? (String(l.outros_descricao || '').trim() || 'Outros')
+        : def.nome;
+      itens.push({ emoji: def.emoji, nome, valor });
+    }
+    if (!itens.length) continue;
+    out.push({
+      ano: l.ano,
+      mes: l.mes,
+      label: calc.labelMes(l.ano, l.mes),
+      itens,
+      subtotal: calc.round2(itens.reduce((s, i) => s + i.valor, 0)),
+    });
+  }
+  return out;
+}
+
+// Resumo de todas as casas, para montar a lista de seleção na tela.
+function listarPendencias() {
+  const casas = db.prepare('SELECT * FROM casas ORDER BY numero').all();
+  const itens = casas.map((c) => {
+    const meses = mesesEmAberto(c.id);
+    const tel = normalizarTelefone(c.telefone);
+    return {
+      casa_id: c.id,
+      numero: c.numero,
+      casa_str: String(c.numero).padStart(2, '0'),
+      inquilino: c.inquilino || '',
+      telefone: tel,
+      tem_telefone: !!tel,
+      qtd_meses: meses.length,
+      meses: meses.map((m) => m.label),
+      total_aberto: calc.round2(meses.reduce((s, m) => s + m.subtotal, 0)),
+    };
+  }).filter((c) => c.inquilino);
+
+  return {
+    casas: itens,
+    resumo: {
+      devendo: itens.filter((c) => c.total_aberto > 0).length,
+      total_aberto: calc.round2(itens.reduce((s, c) => s + c.total_aberto, 0)),
+    },
+  };
+}
+
+function gerarMensagemPendencias(casaId) {
+  const casa = db.prepare('SELECT * FROM casas WHERE id = ?').get(casaId);
+  if (!casa) { const e = new Error('Casa não encontrada'); e.statusCode = 404; throw e; }
+
+  const casaStr = String(casa.numero).padStart(2, '0');
+  const nome = casa.inquilino || 'morador';
+  const meses = mesesEmAberto(casa.id);
+  const cab = `🏠 *Casa ${casaStr} — ${nome}*`;
+
+  if (!meses.length) {
+    return {
+      texto: `${cab}\n\n✅ *Nenhuma conta em aberto.* Está tudo em dia por aqui — obrigado! 🙏`,
+      total_aberto: 0,
+      qtd_meses: 0,
+    };
+  }
+
+  const total = calc.round2(meses.reduce((s, m) => s + m.subtotal, 0));
+  const blocos = meses.map((m) => {
+    const linhas = m.itens.map((i) => `${i.emoji} ${i.nome}: ${moeda(i.valor)}`).join('\n');
+    const sub = m.itens.length > 1 ? `\n_subtotal: ${moeda(m.subtotal)}_` : '';
+    return `📅 *${m.label}*\n${linhas}${sub}`;
+  }).join('\n\n');
+
+  const intro = meses.length === 1
+    ? 'Contas em aberto:'
+    : `Contas em aberto (${meses.length} meses):`;
+
+  return {
+    texto: `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL EM ABERTO: ${moeda(total)}*\n\nQualquer dúvida é só chamar 🙏`,
+    total_aberto: total,
+    qtd_meses: meses.length,
+  };
+}
+
 const ICONE_CATEGORIA = {
   convivencia: '🤝',
   contas: '💰',
@@ -255,6 +364,8 @@ module.exports = {
   MODELOS,
   gerarMensagem,
   gerarMensagensDoMes,
+  listarPendencias,
+  gerarMensagemPendencias,
   textoRegras,
   normalizarTelefone,
   waUrl,

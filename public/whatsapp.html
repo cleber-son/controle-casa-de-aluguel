@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — WhatsApp</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.6">
+  <link rel="stylesheet" href="/css/app.css?v=3.7">
   <style>
     /* --- regras específicas da tela de WhatsApp (usa só os tokens do app.css) --- */
     .wa-steps{display:flex;gap:8px;margin:14px 0 18px}
@@ -46,6 +46,14 @@
     .wa-item.is-enviado{border-color:var(--ok)}
     .wa-item.is-enviado .wa-titulo .strong{text-decoration:line-through;color:var(--txt-dim)}
 
+    /* cobrança consolidada por inquilino */
+    .pd-topo{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+    .pd-topo .field{flex:1 1 280px;margin:0}
+    .pd-resumo{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .pd-bolha{white-space:pre-wrap;word-break:break-word}
+    .pd-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .pd-acoes .btn{flex:1 1 170px}
+
     .wa-sep{border:0;border-top:1px solid var(--line);margin:22px 0 14px}
     .wa-teste-box{border:1px dashed var(--line);border-radius:var(--r);padding:12px;margin-top:12px}
   </style>
@@ -64,6 +72,7 @@
       <button class="btn btn-ghost btn-sm" id="ir-teste" type="button">Testar mensagem</button>
     </div>
 
+    <div id="wa-pendencias"></div>
     <div id="wa-topo"></div>
     <div id="wa-steps"></div>
     <div id="wa-conteudo"></div>
@@ -72,7 +81,7 @@
     <div id="wa-teste"></div>
   </main>
 
-  <script src="/js/core.js?v=3.6"></script>
+  <script src="/js/core.js?v=3.7"></script>
   <script>
   (function () {
     'use strict';
@@ -102,7 +111,11 @@
       editando: null,        // casa_id em edição
       abertos: new Set(),    // balões expandidos na fila
       teste: null,           // { texto, wa_url, telefone_normalizado }
-      testeCarregando: false
+      testeCarregando: false,
+      pend: null,            // GET /api/pendencias
+      pendSel: null,         // casa_id escolhida na cobrança consolidada
+      pendMsg: null,         // GET /api/pendencias/:casa_id
+      pendCarregando: false
     };
 
     /* ---------------- persistência do progresso da tela ---------------- */
@@ -645,6 +658,106 @@
       '</div>';
     }
 
+    /* ------- cobrança consolidada: um inquilino, todos os meses ------- */
+    /* A tela de cima trabalha mês a mês. Aqui é o contrário: escolhe o
+       inquilino e sai tudo o que ele deve, de todos os meses, num texto só. */
+
+    var elPend = document.getElementById('wa-pendencias');
+
+    function carregarPendencias() {
+      return App.api('/pendencias').then(function (d) {
+        state.pend = d;
+        renderPendencias();
+      }).catch(function () {
+        elPend.innerHTML = '';
+      });
+    }
+
+    function carregarPendMsg(casaId) {
+      state.pendCarregando = true;
+      state.pendMsg = null;
+      renderPendencias();
+      return App.api('/pendencias/' + casaId).then(function (d) {
+        state.pendCarregando = false;
+        if (Number(state.pendSel) !== Number(casaId)) return;   // trocou no meio
+        state.pendMsg = d;
+        renderPendencias();
+      }).catch(function () {
+        state.pendCarregando = false;
+        renderPendencias();
+      });
+    }
+
+    function renderPendencias() {
+      if (!state.pend) { elPend.innerHTML = ''; return; }
+      var casas = state.pend.casas || [];
+      if (!casas.length) { elPend.innerHTML = ''; return; }
+
+      var r = state.pend.resumo || { devendo: 0, total_aberto: 0 };
+
+      var opts = '<option value="">Escolha o inquilino…</option>' +
+        casas.map(function (c) {
+          var det = c.total_aberto > 0
+            ? App.money(c.total_aberto) + ' em ' + c.qtd_meses + (c.qtd_meses === 1 ? ' mês' : ' meses')
+            : 'em dia';
+          return '<option value="' + c.casa_id + '"' +
+            (Number(state.pendSel) === Number(c.casa_id) ? ' selected' : '') + '>' +
+            'Casa ' + esc(c.casa_str) + ' — ' + esc(c.inquilino) + ' · ' + esc(det) + '</option>';
+        }).join('');
+
+      var h = '<div class="card card-accent-brand" style="margin-bottom:16px">' +
+        '<div class="card-head"><div>' +
+          '<div class="card-title">Cobrar um inquilino</div>' +
+          '<div class="card-sub">Todos os meses que ele deve, numa mensagem só</div>' +
+        '</div><div class="right" style="text-align:right">' +
+          '<div class="small muted">' + esc(String(r.devendo)) + ' devendo · ' + App.money(r.total_aberto) + '</div>' +
+          '<button class="btn btn-ghost btn-sm" data-act="pd-atualizar" type="button" title="Recarregar os saldos">↻ Atualizar</button>' +
+        '</div></div>' +
+        '<div class="card-body">' +
+          '<div class="pd-topo">' +
+            '<div class="field">' +
+              '<label class="field-label" for="pd-casa">Inquilino</label>' +
+              '<select class="select" id="pd-casa">' + opts + '</select>' +
+            '</div>' +
+          '</div>';
+
+      if (state.pendCarregando) {
+        h += '<div class="skeleton" style="height:150px;margin-top:14px;border-radius:var(--r)"></div>';
+      } else if (state.pendMsg) {
+        var m = state.pendMsg;
+        h += '<div class="pd-resumo">' +
+          (m.qtd_meses
+            ? '<span class="badge badge-warn">' + m.qtd_meses + (m.qtd_meses === 1 ? ' mês' : ' meses') + ' em aberto</span>' +
+              '<span class="badge badge-err">' + App.money(m.total_aberto) + '</span>'
+            : '<span class="badge badge-ok">nada em aberto</span>') +
+          (m.tem_telefone ? '' : '<span class="badge badge-dim">sem telefone — dá para copiar o texto</span>') +
+          '</div>' +
+          '<div class="wa-bubble pd-bolha" style="margin-top:10px">' + esc(m.texto) + '</div>' +
+          '<div class="pd-acoes">' +
+            '<button class="btn btn-outline" data-act="pd-copiar" type="button">📋 Copiar texto</button>' +
+            '<a class="btn btn-wa" href="' + esc(m.wa_url || '#') + '" target="_blank" rel="noopener">' +
+              (m.tem_telefone ? '💬 Abrir WhatsApp' : '💬 Abrir e escolher contato') + '</a>' +
+          '</div>';
+      } else {
+        h += '<p class="muted small" style="margin:14px 0 0">Escolha o inquilino para montar a cobrança ' +
+          'com tudo o que está em aberto. O aluguel não entra — só água, luz e outros.</p>';
+      }
+
+      h += '</div></div>';
+      elPend.innerHTML = h;
+
+      var sel = document.getElementById('pd-casa');
+      if (sel) {
+        sel.addEventListener('change', function () {
+          var v = sel.value;
+          state.pendSel = v ? Number(v) : null;
+          state.pendMsg = null;
+          if (state.pendSel) carregarPendMsg(state.pendSel);
+          else renderPendencias();
+        });
+      }
+    }
+
     /* ---------------- render: campo de teste ---------------- */
 
     function renderTeste() {
@@ -865,6 +978,18 @@
         return;
       }
 
+      if (act === 'pd-copiar') {
+        if (state.pendMsg) App.copiar(state.pendMsg.texto);
+        return;
+      }
+
+      if (act === 'pd-atualizar') {
+        carregarPendencias().then(function () {
+          if (state.pendSel) carregarPendMsg(state.pendSel);
+        });
+        return;
+      }
+
       if (act === 'copiar-preview') {
         var mp = porId(casaId);
         if (mp) App.copiar(textoDe(mp));
@@ -954,6 +1079,7 @@
     window.addEventListener('focus', retomarPendentes);
 
     boot();
+    carregarPendencias();
   })();
   </script>
 </body>
