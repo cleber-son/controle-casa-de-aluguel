@@ -118,6 +118,16 @@ CREATE INDEX IF NOT EXISTS idx_luz_mes  ON contas_luz(mes_id);
 CREATE INDEX IF NOT EXISTS idx_env_mes  ON envios_wa(mes_id);
 `);
 
+// ── Migrações de coluna (idempotentes) ───────────────────────────
+// "inquilino_desde" ('AAAA-MM'): mês em que o inquilino entrou. Meses
+// anteriores a isso a casa conta como vaga — ele não paga conta de antes
+// de morar aqui.
+const colunasCasas = db.prepare('PRAGMA table_info(casas)').all().map((c) => c.name);
+if (!colunasCasas.includes('inquilino_desde')) {
+  db.exec('ALTER TABLE casas ADD COLUMN inquilino_desde TEXT');
+  log('db: coluna casas.inquilino_desde criada');
+}
+
 // ── Seed de casas (só se a tabela estiver vazia) ─────────────────
 
 const totalCasas = db.prepare('SELECT COUNT(*) AS n FROM casas').get().n;

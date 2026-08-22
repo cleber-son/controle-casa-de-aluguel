@@ -114,8 +114,8 @@ router.get('/bootstrap', h((req, res) => {
 
 // ── Casas ────────────────────────────────────────────────────────
 
-const CAMPOS_CASA = ['numero', 'inquilino', 'telefone', 'aluguel', 'moradores',
-  'relogio', 'peso_luz', 'ativa', 'observacoes'];
+const CAMPOS_CASA = ['numero', 'inquilino', 'inquilino_desde', 'telefone', 'aluguel',
+  'moradores', 'relogio', 'peso_luz', 'ativa', 'observacoes'];
 
 function validarCamposCasa(b, { exigirNumero = false } = {}) {
   const out = {};
@@ -125,6 +125,16 @@ function validarCamposCasa(b, { exigirNumero = false } = {}) {
     out.numero = n;
   }
   if (b.inquilino !== undefined) out.inquilino = String(b.inquilino || '').trim();
+  if (b.inquilino_desde !== undefined) {
+    const v = String(b.inquilino_desde || '').trim();
+    if (!v) {
+      out.inquilino_desde = null;
+    } else if (/^\d{4}-\d{2}$/.test(v) && Number(v.slice(5, 7)) >= 1 && Number(v.slice(5, 7)) <= 12) {
+      out.inquilino_desde = v;
+    } else {
+      throw new Error('Mês de entrada inválido (use AAAA-MM)');
+    }
+  }
   if (b.telefone !== undefined) {
     const dig = String(b.telefone || '').replace(/\D/g, '');
     out.telefone = dig || null;
@@ -159,9 +169,9 @@ router.post('/casas', h((req, res) => {
   const jaExiste = db.prepare('SELECT id FROM casas WHERE numero = ?').get(c.numero);
   if (jaExiste) throw new Error(`Já existe uma casa com o número ${c.numero}`);
   const info = db.prepare(`
-    INSERT INTO casas (numero, inquilino, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(c.numero, c.inquilino ?? '', c.telefone ?? null, c.aluguel ?? 0,
+    INSERT INTO casas (numero, inquilino, inquilino_desde, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(c.numero, c.inquilino ?? '', c.inquilino_desde ?? null, c.telefone ?? null, c.aluguel ?? 0,
     c.moradores ?? 1, c.relogio ?? 1, c.peso_luz ?? 1, c.ativa ?? 1, c.observacoes ?? null);
   res.json({ ok: true, id: info.lastInsertRowid });
 }));
@@ -182,7 +192,8 @@ router.put('/casas/:id', h((req, res) => {
 
   // Reflete a mudança nos meses ainda abertos: sem isso, alterar moradores
   // (ou inquilino/aluguel/relógio) aqui não mexia no mês já criado.
-  const RELEVANTES = ['inquilino', 'moradores', 'aluguel', 'relogio', 'peso_luz', 'ativa'];
+  const RELEVANTES = ['inquilino', 'inquilino_desde', 'moradores', 'aluguel', 'relogio',
+    'peso_luz', 'ativa'];
   const mudou = RELEVANTES.some((k) => c[k] !== undefined && c[k] !== casa[k]);
   let mesesSincronizados = 0;
   if (mudou) {

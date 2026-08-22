@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Casas</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.4">
+  <link rel="stylesheet" href="/css/app.css?v=3.5">
   <style>
     /* regras específicas desta página — tudo com os tokens do design system */
     /* 2 colunas só quando cabe de verdade: cada card tem um formulário inteiro dentro */
@@ -49,7 +49,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js?v=3.4"></script>
+  <script src="/js/core.js?v=3.5"></script>
   <script>
   (function () {
     App.mount('casas');
@@ -110,6 +110,7 @@
       return {
         numero:      c.numero == null ? '' : String(c.numero),
         inquilino:   c.inquilino || '',
+        inquilino_desde: c.inquilino_desde || '',
         telefone:    telParaInput(c.telefone),
         aluguel:     numStr(c.aluguel == null ? 0 : c.aluguel),
         moradores:   String(c.moradores == null ? 1 : c.moradores),
@@ -122,7 +123,7 @@
     function chave(id) { return id === null ? 'nova' : String(id); }
     function buffer(id) { return state.form[chave(id)]; }
     function original(id) {
-      if (id === null) return campos({ inquilino: '', aluguel: 0, moradores: 1, relogio: 1, peso_luz: 1, ativa: 1, numero: state.nova ? state.nova.numero : '' });
+      if (id === null) return campos({ inquilino: '', inquilino_desde: '', aluguel: 0, moradores: 1, relogio: 1, peso_luz: 1, ativa: 1, numero: state.nova ? state.nova.numero : '' });
       for (var i = 0; i < state.casas.length; i++) if (state.casas[i].id === id) return campos(state.casas[i]);
       return null;
     }
@@ -257,6 +258,9 @@
       var vaga = f.inquilino.trim() === '';
       if (!f.ativa) b.push('<span class="badge badge-dim">Inativa — não entra nos próximos meses</span>');
       if (vaga) b.push('<span class="badge badge-info">Casa vaga — não paga água, luz nem aluguel</span>');
+      if (!vaga && (f.inquilino_desde || '').trim()) {
+        b.push('<span class="badge badge-info">Entrou em ' + esc(f.inquilino_desde) + ' — meses antes disso ficam vagos</span>');
+      }
       if (!vaga && !digitos(f.telefone)) b.push('<span class="badge badge-warn">Sem telefone — não dá pra mandar WhatsApp</span>');
       if (digitos(f.telefone) && !telValido(f.telefone)) b.push('<span class="badge badge-err">Telefone incompleto</span>');
       if (!vaga && (parseInt(f.moradores, 10) || 0) < 1) b.push('<span class="badge badge-warn">Sem moradores — não entra no rateio da água</span>');
@@ -295,6 +299,13 @@
            '<input class="input" id="inq-' + k + '" type="text" autocomplete="off" data-casa="' + k + '" data-campo="inquilino" ' +
            'value="' + esc(f.inquilino) + '" placeholder="Nome de quem mora">' +
            '<div class="field-hint">Deixe <span class="strong">vazio</span> se a casa está vaga.</div></div>';
+
+      h += '<div class="field"><label class="field-label" for="desde-' + k + '">Inquilino desde</label>' +
+           '<input class="input" id="desde-' + k + '" type="month" data-casa="' + k + '" data-campo="inquilino_desde" ' +
+           'value="' + esc(f.inquilino_desde) + '">' +
+           '<div class="field-hint">Mês em que ele entrou. Meses <span class="strong">anteriores</span> a esse ' +
+           'ficam como casa vaga: ele não é cobrado e não entra no rateio de água e luz. Deixe em branco se ' +
+           'ele já estava aqui desde o começo do controle.</div></div>';
 
       h += '<div class="field"><label class="field-label" for="tel-' + k + '">Telefone (WhatsApp)</label>' +
            '<input class="input" id="tel-' + k + '" type="tel" inputmode="numeric" autocomplete="off" data-casa="' + k + '" data-campo="telefone" ' +
@@ -491,7 +502,7 @@
       }
       var max = state.casas.reduce(function (m, c) { return Math.max(m, Number(c.numero) || 0); }, 0);
       var relMax = state.casas.reduce(function (m2, c) { return Math.max(m2, Number(c.relogio) || 0); }, 0);
-      state.nova = { numero: max + 1, inquilino: '', telefone: '', aluguel: 0, moradores: 1,
+      state.nova = { numero: max + 1, inquilino: '', inquilino_desde: '', telefone: '', aluguel: 0, moradores: 1,
                      relogio: relMax || 1, peso_luz: 1, ativa: 1, observacoes: '' };
       state.form.nova = campos(state.nova);
       render();
@@ -516,6 +527,7 @@
       return {
         numero: parseInt(f.numero, 10),
         inquilino: f.inquilino.trim(),
+        inquilino_desde: (f.inquilino_desde || '').trim() || null,
         telefone: telParaApi(f.telefone),
         aluguel: moedaNum(f.aluguel),
         moradores: parseInt(f.moradores, 10) || 0,

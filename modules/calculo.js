@@ -47,6 +47,24 @@ function validarAnoMes(ano, mes) {
   }
 }
 
+/**
+ * A casa conta como vaga naquele mês se não tem inquilino, se está inativa,
+ * ou se o mês é anterior à entrada do inquilino (casas.inquilino_desde).
+ * Assim quem entrou em agosto não aparece cobrado em junho e julho — e também
+ * não entra no rateio da água e da luz desses meses.
+ */
+function vaziaNoMes(casa, ano, mes) {
+  if (!casa.ativa) return 1;
+  if (!String(casa.inquilino || '').trim()) return 1;
+  const desde = String(casa.inquilino_desde || '').trim();
+  if (/^\d{4}-\d{2}$/.test(desde)) {
+    const alvo = ano * 100 + mes;
+    const inicio = Number(desde.slice(0, 4)) * 100 + Number(desde.slice(5, 7));
+    if (alvo < inicio) return 1;
+  }
+  return 0;
+}
+
 // Cria o mês (se preciso) + 1 lançamento por casa ativa + 1 conta de luz
 // por relógio existente. Lançamento já existente não é sobrescrito (histórico).
 const garantirMes = db.transaction((ano, mes) => {
@@ -61,8 +79,9 @@ const garantirMes = db.transaction((ano, mes) => {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   for (const c of casas) {
-    const vazia = !String(c.inquilino || '').trim() ? 1 : 0;
-    insLanc.run(mesRow.id, c.id, c.inquilino || '', vazia, c.moradores, vazia ? 0 : c.aluguel);
+    const vazia = vaziaNoMes(c, ano, mes);
+    insLanc.run(mesRow.id, c.id, vazia ? '' : (c.inquilino || ''), vazia, c.moradores,
+      vazia ? 0 : c.aluguel);
   }
 
   const relogios = db.prepare('SELECT DISTINCT relogio FROM casas WHERE ativa = 1 ORDER BY relogio').all();
@@ -194,10 +213,9 @@ const marcarPago = db.transaction((lancId, item, pago) => {
  * Mês fechado nunca é tocado — ele é a fotografia do histórico.
  */
 const sincronizarCasa = db.transaction((casaAntiga, casaNova) => {
-  const abertos = db.prepare('SELECT id FROM meses WHERE fechado = 0').all();
+  const abertos = db.prepare('SELECT id, ano, mes FROM meses WHERE fechado = 0').all();
   if (!abertos.length) return 0;
 
-  const vazia = !String(casaNova.inquilino || '').trim() || !casaNova.ativa ? 1 : 0;
   const padraoAntigo = round2(casaAntiga.aluguel);
   let tocados = 0;
 
@@ -206,14 +224,21 @@ const sincronizarCasa = db.transaction((casaAntiga, casaNova) => {
       .get(mes.id, casaNova.id);
     if (!l) continue;
 
+    // cada mês decide sozinho: antes da entrada do inquilino, a casa é vaga
+    const vazia = vaziaNoMes(casaNova, mes.ano, mes.mes);
+
     const upd = {
-      inquilino: casaNova.inquilino || '',
+      inquilino: vazia ? '' : (casaNova.inquilino || ''),
       vazia,
       moradores: casaNova.moradores,
     };
 
     if (vazia) {
       upd.aluguel_valor = 0;                                 // casa vaga não paga aluguel
+      upd.outros_valor = 0;
+      upd.outros_descricao = null;
+      upd.outros_pago = 0;
+      upd.aluguel_pago = 0;
     } else if (!l.aluguel_pago &&
                (round2(l.aluguel_valor) === padraoAntigo || round2(l.aluguel_valor) === 0)) {
       upd.aluguel_valor = round2(casaNova.aluguel);          // ainda no padrão → acompanha
@@ -401,6 +426,7 @@ module.exports = {
   garantirMes,
   recalcularMes,
   totalmentePago,
+  vaziaNoMes,
   atualizarQuitado,
   marcarPago,
   sincronizarCasa,
