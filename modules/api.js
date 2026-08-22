@@ -314,8 +314,10 @@ router.put('/lancamento/:id/pago', h((req, res) => {
   const m = mesPorId(lanc.mes_id);
   exigirAberto(m);
   const b = req.body || {};
-  const itensValidos = ['agua', 'luz', 'outros', 'aluguel', 'tudo'];
-  if (!itensValidos.includes(b.item)) throw new Error('Item inválido (use agua, luz, outros, aluguel ou tudo)');
+  const itensValidos = ['agua', 'luz', 'outros', 'aluguel', 'contas', 'tudo'];
+  if (!itensValidos.includes(b.item)) {
+    throw new Error('Item inválido (use agua, luz, outros, aluguel, contas ou tudo)');
+  }
   const pago = boolOuErro(b.pago, 'pago');
   calc.marcarPago(id, b.item, pago);
   res.json({ ok: true, mes_completo: mesCompleto(m.id) });

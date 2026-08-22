@@ -173,18 +173,23 @@ function atualizarQuitado(lancId) {
   }
 }
 
-// item: 'agua' | 'luz' | 'outros' | 'aluguel' | 'tudo'
+// item: 'agua' | 'luz' | 'outros' | 'aluguel' | 'contas' | 'tudo'
+//   'contas' = água + luz + outros (o aluguel é cobrado à parte)
+//   'tudo'   = contas + aluguel
+const GRUPOS_PAGO = { tudo: ITENS, contas: ITENS_CONTAS };
+
 const marcarPago = db.transaction((lancId, item, pago) => {
-  if (item !== 'tudo' && !ITENS.includes(item)) throw new Error('Item inválido');
+  const grupo = GRUPOS_PAGO[item];
+  if (!grupo && !ITENS.includes(item)) throw new Error('Item inválido');
   const l = db.prepare('SELECT * FROM lancamentos WHERE id = ?').get(lancId);
   if (!l) throw new Error('Lançamento não encontrado');
 
   const hoje = hojeISO();
-  const alvos = item === 'tudo' ? ITENS : [item];
+  const alvos = grupo || [item];
   for (const it of alvos) {
     if (pago) {
-      // "quitar tudo" não marca itens sem valor.
-      if (item === 'tudo' && !(l[`${it}_valor`] > 0)) continue;
+      // quitar em grupo não marca item sem valor
+      if (grupo && !(l[`${it}_valor`] > 0)) continue;
       db.prepare(`UPDATE lancamentos SET ${it}_pago = 1, ${it}_pago_em = COALESCE(${it}_pago_em, ?) WHERE id = ?`)
         .run(hoje, lancId);
     } else {

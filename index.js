@@ -18,7 +18,7 @@ const apiRouter = require('./modules/api');
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const SECRET = process.env.SESSION_SECRET || '';
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
-const VERSION = '3.7.0';
+const VERSION = '3.8.0';
 
 if (!SECRET) warn('SESSION_SECRET não definido. Gere com: openssl rand -hex 32');
 if (!process.env.APP_PASSWORD) warn('APP_PASSWORD não definido — ninguém consegue entrar.');
