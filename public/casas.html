@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Casas</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.3">
+  <link rel="stylesheet" href="/css/app.css?v=3.4">
   <style>
     /* regras específicas desta página — tudo com os tokens do design system */
     /* 2 colunas só quando cabe de verdade: cada card tem um formulário inteiro dentro */
@@ -49,7 +49,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js?v=3.3"></script>
+  <script src="/js/core.js?v=3.4"></script>
   <script>
   (function () {
     App.mount('casas');
@@ -181,7 +181,8 @@
       var aluguel = ocupadas.reduce(function (s, c) { return s + (Number(c.aluguel) || 0); }, 0);
       var semTel = ocupadas.filter(function (c) { return !digitos(c.telefone); });
 
-      var rel = [1, 2].map(function (r) {
+      var numsRel = Object.keys(relogiosExistentes()).map(Number).sort(function (a, b) { return a - b; });
+      var rel = numsRel.map(function (r) {
         var doRel = ativas.filter(function (c) { return Number(c.relogio) === r; });
         var oc = doRel.filter(function (c) { return (c.inquilino || '').trim() !== ''; });
         return {
@@ -192,7 +193,7 @@
           peso: oc.reduce(function (s, c) { return s + (Number(c.peso_luz) || 0); }, 0)
         };
       });
-      var outros = ativas.filter(function (c) { return Number(c.relogio) !== 1 && Number(c.relogio) !== 2; });
+      var semRelogio = ativas.filter(function (c) { return !(Number(c.relogio) >= 1); });
 
       var h = '';
 
@@ -217,12 +218,14 @@
              '<div class="small">' + r.ocupadas + ' ocupada(s) · ' + r.moradores + ' morador(es) · peso total ' +
              App.num(r.peso) + '</div></div>';
       });
-      if (outros.length) {
-        h += '<div class="badge badge-err">Há casa(s) com relógio diferente de 1 ou 2: ' +
-             esc(outros.map(function (c) { return casaStr(c.numero); }).join(', ')) + '</div>';
+      if (semRelogio.length) {
+        h += '<div class="badge badge-err">Há casa(s) sem relógio válido: ' +
+             esc(semRelogio.map(function (c) { return casaStr(c.numero); }).join(', ')) + '</div>';
       }
       h += '<p class="muted small">A luz é dividida dentro de cada relógio pelo <span class="strong">peso</span> das casas ocupadas ' +
-           '(peso 1 em todas = divisão igual). A água é dividida por cabeça, somando os moradores de todas as casas ocupadas.</p>';
+           '(peso 1 em todas = divisão igual). Casa sozinha no relógio paga a conta inteira dele. ' +
+           'Já a água é dividida por cabeça, somando os moradores de <span class="strong">todas</span> as casas ocupadas, ' +
+           'independente do relógio.</p>';
       h += '</div>';
 
       if (semTel.length) {
@@ -311,10 +314,10 @@
 
       h += '<div class="field"><label class="field-label" for="rel-' + k + '">Relógio de luz</label>' +
            '<select class="select" id="rel-' + k + '" data-casa="' + k + '" data-campo="relogio">' +
-           '<option value="1"' + (String(f.relogio) === '1' ? ' selected' : '') + '>Relógio 1 — casas 1, 2 e 3</option>' +
-           '<option value="2"' + (String(f.relogio) === '2' ? ' selected' : '') + '>Relógio 2 — casas 4, 5, 6 e 7</option>' +
+           opcoesRelogio(f.relogio) +
            '</select>' +
-           '<div class="field-hint">São duas contas de luz separadas, uma por relógio.</div></div>';
+           '<div class="field-hint">Cada relógio é uma conta de luz separada, dividida entre as casas ' +
+           'ocupadas dele. Casa com relógio só dela paga a conta inteira.</div></div>';
 
       h += '<div class="field"><label class="field-label" for="pes-' + k + '">Peso da luz</label>' +
            '<input class="input" id="pes-' + k + '" type="text" inputmode="decimal" data-casa="' + k + '" data-campo="peso_luz" ' +
@@ -343,6 +346,35 @@
            '</div>';
 
       h += '</section>';
+      return h;
+    }
+
+    /* Relógios não são fixos: a lista sai do próprio cadastro, e sempre sobra
+       uma opção a mais para quem precisa de um relógio novo (conta separada). */
+    function relogiosExistentes() {
+      var vistos = {};
+      state.casas.forEach(function (c) {
+        var r = parseInt(c.relogio, 10);
+        if (r >= 1) vistos[r] = (vistos[r] || []).concat(casaStr(c.numero));
+      });
+      return vistos;
+    }
+
+    function opcoesRelogio(atual) {
+      var vistos = relogiosExistentes();
+      var nums = Object.keys(vistos).map(Number).sort(function (a, b) { return a - b; });
+      var sel = parseInt(atual, 10) || 1;
+      if (nums.indexOf(sel) === -1) nums.push(sel);
+      nums.sort(function (a, b) { return a - b; });
+      var novo = (nums.length ? Math.max.apply(null, nums) : 0) + 1;
+
+      var h = nums.map(function (r) {
+        var casas = (vistos[r] || []).join(', ');
+        return '<option value="' + r + '"' + (sel === r ? ' selected' : '') + '>Relógio ' + r +
+               (casas ? ' — casas ' + esc(casas) : ' — sem casas ainda') + '</option>';
+      }).join('');
+      h += '<option value="' + novo + '"' + (sel === novo ? ' selected' : '') + '>Relógio ' + novo +
+           ' — novo (conta separada)</option>';
       return h;
     }
 
@@ -458,7 +490,9 @@
         return;
       }
       var max = state.casas.reduce(function (m, c) { return Math.max(m, Number(c.numero) || 0); }, 0);
-      state.nova = { numero: max + 1, inquilino: '', telefone: '', aluguel: 0, moradores: 1, relogio: (max + 1) <= 3 ? 1 : 2, peso_luz: 1, ativa: 1, observacoes: '' };
+      var relMax = state.casas.reduce(function (m2, c) { return Math.max(m2, Number(c.relogio) || 0); }, 0);
+      state.nova = { numero: max + 1, inquilino: '', telefone: '', aluguel: 0, moradores: 1,
+                     relogio: relMax || 1, peso_luz: 1, ativa: 1, observacoes: '' };
       state.form.nova = campos(state.nova);
       render();
       var novo = cardEl('nova');
@@ -474,7 +508,7 @@
       if (moedaNum(f.aluguel) < 0) return 'Aluguel não pode ser negativo.';
       if (moedaNum(f.peso_luz) < 0) return 'Peso da luz não pode ser negativo.';
       var rel = parseInt(f.relogio, 10);
-      if (rel !== 1 && rel !== 2) return 'Relógio precisa ser 1 ou 2.';
+      if (!rel || rel < 1) return 'Escolha um relógio de luz válido.';
       return null;
     }
 
