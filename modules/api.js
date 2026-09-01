@@ -442,12 +442,15 @@ router.post('/mensagens/teste', h((req, res) => {
   });
 }));
 
-// ── Mensagem de prestação de contas do repasse ───────────────────
+// ── Mensagens do repasse (grupo da família) ──────────────────────
 
+// ?modelo=comprovante → texto curto para mandar junto com o comprovante.
+// Sem modelo (ou modelo desconhecido) → prestação de contas completa.
 router.get('/repasse/mensagem/:ano/:mes', h((req, res) => {
   const { ano, mes } = anoMesDaRota(req);
-  const m = msgs.gerarMensagemRepasse(ano, mes);
-  res.json({ ok: true, ...m, wa_url: msgs.waUrl(null, m.texto) });
+  const modelo = String((req.query || {}).modelo || '').trim();
+  const m = msgs.gerarMensagemRepasse(ano, mes, modelo);
+  res.json({ ok: true, ...m, modelos: msgs.MODELOS_REPASSE, wa_url: msgs.waUrl(null, m.texto) });
 }));
 
 // ── Cobrança consolidada por inquilino ───────────────────────────
