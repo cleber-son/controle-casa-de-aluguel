@@ -115,7 +115,7 @@ router.get('/bootstrap', h((req, res) => {
 // ── Casas ────────────────────────────────────────────────────────
 
 const CAMPOS_CASA = ['numero', 'inquilino', 'inquilino_desde', 'telefone', 'aluguel',
-  'moradores', 'relogio', 'peso_luz', 'ativa', 'observacoes'];
+  'moradores', 'relogio', 'peso_luz', 'dia_vencimento_aluguel', 'ativa', 'observacoes'];
 
 function validarCamposCasa(b, { exigirNumero = false } = {}) {
   const out = {};
@@ -155,6 +155,18 @@ function validarCamposCasa(b, { exigirNumero = false } = {}) {
     if (!Number.isFinite(n) || n < 0) throw new Error('Peso da luz inválido');
     out.peso_luz = n;
   }
+  if (b.dia_vencimento_aluguel !== undefined) {
+    const v = b.dia_vencimento_aluguel;
+    if (v === null || v === '') {
+      out.dia_vencimento_aluguel = calc.DIA_VENC_ALUGUEL_PADRAO;
+    } else {
+      const n = toInt(v);
+      if (Number.isNaN(n) || n < 1 || n > 31) {
+        throw new Error('Dia de vencimento do aluguel inválido (use de 1 a 31)');
+      }
+      out.dia_vencimento_aluguel = n;
+    }
+  }
   if (b.ativa !== undefined) out.ativa = boolOuErro(b.ativa, 'ativa') ? 1 : 0;
   if (b.observacoes !== undefined) out.observacoes = String(b.observacoes || '').trim() || null;
   return out;
@@ -169,10 +181,12 @@ router.post('/casas', h((req, res) => {
   const jaExiste = db.prepare('SELECT id FROM casas WHERE numero = ?').get(c.numero);
   if (jaExiste) throw new Error(`Já existe uma casa com o número ${c.numero}`);
   const info = db.prepare(`
-    INSERT INTO casas (numero, inquilino, inquilino_desde, telefone, aluguel, moradores, relogio, peso_luz, ativa, observacoes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO casas (numero, inquilino, inquilino_desde, telefone, aluguel, moradores, relogio,
+                       peso_luz, dia_vencimento_aluguel, ativa, observacoes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(c.numero, c.inquilino ?? '', c.inquilino_desde ?? null, c.telefone ?? null, c.aluguel ?? 0,
-    c.moradores ?? 1, c.relogio ?? 1, c.peso_luz ?? 1, c.ativa ?? 1, c.observacoes ?? null);
+    c.moradores ?? 1, c.relogio ?? 1, c.peso_luz ?? 1,
+    c.dia_vencimento_aluguel ?? calc.DIA_VENC_ALUGUEL_PADRAO, c.ativa ?? 1, c.observacoes ?? null);
   res.json({ ok: true, id: info.lastInsertRowid });
 }));
 

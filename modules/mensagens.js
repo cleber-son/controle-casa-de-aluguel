@@ -75,8 +75,10 @@ function ctxDaCasa(casa, payload) {
               vencimento: payload.mes.agua_vencimento },
       luz: { valor: casa.luz_valor, pago: casa.luz_pago, pago_em: casa.luz_pago_em,
              vencimento: relogio ? relogio.vencimento : null },
+      // vencimento do aluguel: o da própria casa (dia cadastrado nela), com a
+      // data geral do mês como reserva
       aluguel: { valor: casa.aluguel_valor, pago: casa.aluguel_pago, pago_em: casa.aluguel_pago_em,
-                 vencimento: payload.mes.aluguel_vencimento },
+                 vencimento: casa.aluguel_vencimento || payload.mes.aluguel_vencimento },
       outros: { valor: casa.outros_valor, pago: casa.outros_pago, pago_em: casa.outros_pago_em,
                 descricao: casa.outros_descricao },
     },

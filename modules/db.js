@@ -128,6 +128,14 @@ if (!colunasCasas.includes('inquilino_desde')) {
   log('db: coluna casas.inquilino_desde criada');
 }
 
+// "dia_vencimento_aluguel" (1..31): dia do mês em que o aluguel daquela casa
+// vence. Padrão 20 para todas — inclusive nas casas que já existiam. Se o dia
+// não existe no mês (31 em fevereiro), o cálculo usa o último dia do mês.
+if (!colunasCasas.includes('dia_vencimento_aluguel')) {
+  db.exec('ALTER TABLE casas ADD COLUMN dia_vencimento_aluguel INTEGER NOT NULL DEFAULT 20');
+  log('db: coluna casas.dia_vencimento_aluguel criada (padrão dia 20)');
+}
+
 // ── Seed de regras (só se a tabela estiver vazia) ────────────────
 // Antes esta lista era inserida com um INSERT INTO casas — os objetos são
 // regras, então um banco novo quebrava no boot ("Missing named parameter

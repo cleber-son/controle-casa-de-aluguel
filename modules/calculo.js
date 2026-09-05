@@ -33,6 +33,18 @@ function nomeMes(n) {
   return MESES[n - 1] || '';
 }
 
+const DIA_VENC_ALUGUEL_PADRAO = 20;
+
+// Dia do mês -> 'AAAA-MM-DD' daquele mês. Dia que não existe no mês
+// (31 em fevereiro, por exemplo) cai no último dia do mês.
+function dataDoDia(ano, mes, dia) {
+  const d = parseInt(dia, 10);
+  if (!Number.isInteger(d) || d < 1) return null;
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const usado = Math.min(d, ultimo);
+  return `${ano}-${String(mes).padStart(2, '0')}-${String(usado).padStart(2, '0')}`;
+}
+
 function labelMes(ano, mes) {
   return `${nomeMes(mes)}/${ano}`;
 }
@@ -274,7 +286,8 @@ function carregarMes(ano, mes) {
   const mesRow = db.prepare('SELECT * FROM meses WHERE id = ?').get(m.id);
 
   const lancs = db.prepare(`
-    SELECT l.*, c.numero, c.telefone, c.relogio, c.peso_luz, c.aluguel AS aluguel_padrao
+    SELECT l.*, c.numero, c.telefone, c.relogio, c.peso_luz, c.aluguel AS aluguel_padrao,
+           c.dia_vencimento_aluguel
     FROM lancamentos l JOIN casas c ON c.id = l.casa_id
     WHERE l.mes_id = ? ORDER BY c.numero
   `).all(m.id);
@@ -320,6 +333,11 @@ function carregarMes(ano, mes) {
       relogio: l.relogio,
       vazia: !!l.vazia,
       aluguel_padrao: round2(l.aluguel_padrao),
+      // Vencimento do aluguel desta casa: o dia cadastrado na casa vira data
+      // deste mês. A data geral do mês, quando preenchida, vale para todas.
+      dia_vencimento_aluguel: l.dia_vencimento_aluguel || DIA_VENC_ALUGUEL_PADRAO,
+      aluguel_vencimento: mesRow.aluguel_vencimento ||
+        dataDoDia(mesRow.ano, mesRow.mes, l.dia_vencimento_aluguel || DIA_VENC_ALUGUEL_PADRAO),
       agua_valor: round2(l.agua_valor),
       agua_pago: !!l.agua_pago,
       agua_pago_em: l.agua_pago_em || null,
@@ -423,9 +441,11 @@ function carregarMes(ano, mes) {
 
 module.exports = {
   INICIO_PERIODO,
+  DIA_VENC_ALUGUEL_PADRAO,
   antesPeriodo,
   round2,
   hojeISO,
+  dataDoDia,
   nomeMes,
   labelMes,
   garantirMes,

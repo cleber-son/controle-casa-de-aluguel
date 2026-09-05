@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Mês</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.12">
+  <link rel="stylesheet" href="/css/app.css?v=3.13">
   <style>
     /* Regras específicas da tela de Mês (usam os tokens do app.css) */
     .m-tit{font-size:1.25rem;line-height:1.2;margin:0;font-weight:800;letter-spacing:.3px}
@@ -121,7 +121,7 @@
     </section>
   </main>
 
-  <script src="/js/core.js?v=3.12"></script>
+  <script src="/js/core.js?v=3.13"></script>
   <script>
   (function () {
     'use strict';
@@ -378,7 +378,8 @@
       });
 
       h += linhaLanc('aluguel', 'Aluguel', null, 0, 'f-aluguel-venc', m.aluguel_vencimento,
-        'edite o valor no card de cada casa', bloq, true);
+        'valor e dia de vencimento saem do cadastro de cada casa · preencha a data só para valer para todas',
+        bloq, true);
 
       h += '</div>' +
         '<div class="card-foot">' +
@@ -471,7 +472,7 @@
         '<td class="td-item" data-label="Água">' + celItem(c, 'agua', 'Água', m.agua_vencimento, bloq) + '</td>' +
         '<td class="td-item" data-label="Luz">' + celItem(c, 'luz', 'Luz', vencDoRelogio(c.relogio), bloq) + '</td>' +
         '<td class="td-item" data-label="Outros">' + celItem(c, 'outros', 'Outros', null, bloq) + '</td>' +
-        '<td class="td-item" data-label="Aluguel">' + celItem(c, 'aluguel', 'Aluguel', m.aluguel_vencimento, bloq) + '</td>' +
+        '<td class="td-item" data-label="Aluguel">' + celItem(c, 'aluguel', 'Aluguel', c.aluguel_vencimento || m.aluguel_vencimento, bloq) + '</td>' +
         '<td data-label="Em aberto"><div class="mt-aberto">' +
           (Number(c.total_aberto) > 0
             ? '<div><span class="mt-l">contas </span><b class="money ' +

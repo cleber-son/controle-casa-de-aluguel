@@ -1,6 +1,6 @@
 {
   "name": "controle-casa-de-aluguel",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "Quintal — controle mensal das 7 casas de aluguel: água rateada por cabeça, luz por relógio, marcação de pagamento, vencimentos, mensagens prontas de WhatsApp com preview e confirmação, histórico mês a mês e regras de convivência.",
   "main": "index.js",
   "scripts": {

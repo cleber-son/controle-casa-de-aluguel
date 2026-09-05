@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
   <title>Quintal — Casas</title>
-  <link rel="stylesheet" href="/css/app.css?v=3.12">
+  <link rel="stylesheet" href="/css/app.css?v=3.13">
   <style>
     /* regras específicas desta página — tudo com os tokens do design system */
     /* 2 colunas só quando cabe de verdade: cada card tem um formulário inteiro dentro */
@@ -49,7 +49,7 @@
     </div>
   </main>
 
-  <script src="/js/core.js?v=3.12"></script>
+  <script src="/js/core.js?v=3.13"></script>
   <script>
   (function () {
     App.mount('casas');
@@ -60,6 +60,9 @@
     var state = { casas: [], form: {}, nova: null, carregando: true };
 
     /* ---------- helpers ---------- */
+
+    // dia padrão de vencimento do aluguel — mesmo valor usado no banco
+    var DIA_VENC_PADRAO = 20;
 
     function digitos(s) { return String(s == null ? '' : s).replace(/\D+/g, ''); }
 
@@ -113,6 +116,7 @@
         inquilino_desde: c.inquilino_desde || '',
         telefone:    telParaInput(c.telefone),
         aluguel:     numStr(c.aluguel == null ? 0 : c.aluguel),
+        dia_vencimento_aluguel: String(c.dia_vencimento_aluguel == null ? DIA_VENC_PADRAO : c.dia_vencimento_aluguel),
         moradores:   String(c.moradores == null ? 1 : c.moradores),
         relogio:     String(c.relogio == null ? 1 : c.relogio),
         peso_luz:    numStr(c.peso_luz == null ? 1 : c.peso_luz),
@@ -123,7 +127,7 @@
     function chave(id) { return id === null ? 'nova' : String(id); }
     function buffer(id) { return state.form[chave(id)]; }
     function original(id) {
-      if (id === null) return campos({ inquilino: '', inquilino_desde: '', aluguel: 0, moradores: 1, relogio: 1, peso_luz: 1, ativa: 1, numero: state.nova ? state.nova.numero : '' });
+      if (id === null) return campos({ inquilino: '', inquilino_desde: '', aluguel: 0, dia_vencimento_aluguel: DIA_VENC_PADRAO, moradores: 1, relogio: 1, peso_luz: 1, ativa: 1, numero: state.nova ? state.nova.numero : '' });
       for (var i = 0; i < state.casas.length; i++) if (state.casas[i].id === id) return campos(state.casas[i]);
       return null;
     }
@@ -317,6 +321,13 @@
            'value="' + esc(f.aluguel) + '" placeholder="350,00"></div>' +
            '<div class="field-hint">Valor padrão. Ao criar um mês novo ele é copiado e pode ser ajustado lá.</div></div>';
 
+      h += '<div class="field"><label class="field-label" for="dvenc-' + k + '">Dia de vencimento do aluguel</label>' +
+           '<input class="input" id="dvenc-' + k + '" type="number" min="1" max="31" step="1" inputmode="numeric" ' +
+           'data-casa="' + k + '" data-campo="dia_vencimento_aluguel" ' +
+           'value="' + esc(f.dia_vencimento_aluguel) + '" placeholder="20">' +
+           '<div class="field-hint">Dia do mês em que o aluguel desta casa vence. Padrão: <span class="strong">dia 20</span>. ' +
+           'Se o dia não existir no mês (31 em fevereiro), vale o último dia. Vazio volta para 20.</div></div>';
+
       h += '<div class="field"><label class="field-label" for="mor-' + k + '">Moradores (cabeças)</label>' +
            '<input class="input" id="mor-' + k + '" type="number" min="0" step="1" inputmode="numeric" data-casa="' + k + '" data-campo="moradores" ' +
            'value="' + esc(f.moradores) + '">' +
@@ -502,7 +513,8 @@
       }
       var max = state.casas.reduce(function (m, c) { return Math.max(m, Number(c.numero) || 0); }, 0);
       var relMax = state.casas.reduce(function (m2, c) { return Math.max(m2, Number(c.relogio) || 0); }, 0);
-      state.nova = { numero: max + 1, inquilino: '', inquilino_desde: '', telefone: '', aluguel: 0, moradores: 1,
+      state.nova = { numero: max + 1, inquilino: '', inquilino_desde: '', telefone: '', aluguel: 0,
+                     dia_vencimento_aluguel: DIA_VENC_PADRAO, moradores: 1,
                      relogio: relMax || 1, peso_luz: 1, ativa: 1, observacoes: '' };
       state.form.nova = campos(state.nova);
       render();
@@ -518,6 +530,11 @@
       if (isNaN(mor) || mor < 0) return 'Moradores não pode ser negativo.';
       if (moedaNum(f.aluguel) < 0) return 'Aluguel não pode ser negativo.';
       if (moedaNum(f.peso_luz) < 0) return 'Peso da luz não pode ser negativo.';
+      var dia = (f.dia_vencimento_aluguel || '').trim();
+      if (dia !== '') {
+        var d = parseInt(dia, 10);
+        if (isNaN(d) || d < 1 || d > 31) return 'Dia de vencimento do aluguel deve ser de 1 a 31.';
+      }
       var rel = parseInt(f.relogio, 10);
       if (!rel || rel < 1) return 'Escolha um relógio de luz válido.';
       return null;
@@ -530,6 +547,7 @@
         inquilino_desde: (f.inquilino_desde || '').trim() || null,
         telefone: telParaApi(f.telefone),
         aluguel: moedaNum(f.aluguel),
+        dia_vencimento_aluguel: parseInt(f.dia_vencimento_aluguel, 10) || DIA_VENC_PADRAO,
         moradores: parseInt(f.moradores, 10) || 0,
         relogio: parseInt(f.relogio, 10),
         peso_luz: moedaNum(f.peso_luz),
