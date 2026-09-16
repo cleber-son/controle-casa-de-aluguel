@@ -20,7 +20,7 @@ const db = require('./modules/db');
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const SECRET = process.env.SESSION_SECRET || '';
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
-const VERSION = '3.13.0';
+const VERSION = '3.14.0';
 
 // Quanto tempo um dispositivo lembrado continua logado (renovado a cada visita).
 const DIAS_LEMBRAR = parseInt(process.env.SESSAO_DIAS || '365', 10);
@@ -314,6 +314,7 @@ const PAGINAS = {
   '/historico': 'historico.html',
   '/repasse':   'repasse.html',
   '/regras':    'regras.html',
+  '/dados':     'dados.html',
 };
 
 for (const [rota, arquivo] of Object.entries(PAGINAS)) {

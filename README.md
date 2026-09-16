@@ -17,6 +17,7 @@ Versão 3.0 — reescrita completa (visual e lógica).
 | **WhatsApp** (`/whatsapp`) | Gera a mensagem individual de cada inquilino, mostra o **preview**, exige **confirmação** e só então libera a fila de envio (copiar / abrir conversa). Tem campo de **teste**. |
 | **Histórico** (`/historico`) | Abas mês a mês, com o que foi cobrado, recebido e o que ficou em aberto, além da evolução por casa. |
 | **Repasse** (`/repasse`) | Split 50/50 do aluguel recebido entre pai e mãe, com descontos individuais. |
+| **Dados** (`/dados`) | Logins das contas (Sabesp, Enel por relógio) com botão de copiar. Ficam só no banco, nunca no git. |
 | **Regras** (`/regras`) | As 15 regras de convivência do quintal — editáveis, prontas para imprimir ou mandar no grupo. |
 
 ---

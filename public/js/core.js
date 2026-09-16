@@ -63,7 +63,8 @@
     { chave: 'devedores', href: '/devedores', titulo: 'Devedores', icone: '⚠️' },
     { chave: 'historico', href: '/historico', titulo: 'Histórico', icone: '📊' },
     { chave: 'repasse',   href: '/repasse',   titulo: 'Repasse',   icone: '🤝' },
-    { chave: 'regras',    href: '/regras',    titulo: 'Regras',    icone: '📋' }
+    { chave: 'regras',    href: '/regras',    titulo: 'Regras',    icone: '📋' },
+    { chave: 'dados',     href: '/dados',     titulo: 'Dados',     icone: '🔑' }
   ];
 
   /* ---------------------------------------------------------------- texto */

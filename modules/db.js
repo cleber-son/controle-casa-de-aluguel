@@ -113,6 +113,18 @@ CREATE TABLE IF NOT EXISTS regras (
   ativa     INTEGER NOT NULL DEFAULT 1
 );
 
+-- Aba Dados: logins das contas de consumo (Sabesp, Enel...). Fica só no
+-- banco (fora do git) e só sai pela API, que exige sessão.
+CREATE TABLE IF NOT EXISTS acessos (
+  id        INTEGER PRIMARY KEY,
+  ordem     INTEGER NOT NULL DEFAULT 0,
+  servico   TEXT NOT NULL,
+  rotulo    TEXT,
+  login     TEXT NOT NULL DEFAULT '',
+  senha     TEXT NOT NULL DEFAULT '',
+  obs       TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_lanc_mes ON lancamentos(mes_id);
 CREATE INDEX IF NOT EXISTS idx_luz_mes  ON contas_luz(mes_id);
 CREATE INDEX IF NOT EXISTS idx_env_mes  ON envios_wa(mes_id);

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="robots" content="noindex">
+  <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
+  <title>Quintal — Dados</title>
+  <link rel="stylesheet" href="/css/app.css?v=3.14">
+  <style>
+    /* --- específico da aba Dados --- */
+    .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .page-head h1{margin:0;font-size:1.5rem;letter-spacing:.2px}
+
+    .grupo-head{display:flex;align-items:center;gap:9px;margin:20px 0 10px}
+    .grupo-nome{font-weight:700;letter-spacing:.4px;text-transform:uppercase;font-size:.82rem;color:var(--txt-dim)}
+    .grupo-linha{flex:1;height:1px;background:var(--line)}
+
+    .acesso-card{margin-bottom:10px}
+    .acesso-topo{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .acesso-rotulo{font-weight:600;flex:1;min-width:0}
+    .acesso-linha{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+    .acesso-campo{flex:0 0 52px;color:var(--txt-mute);font-size:.8rem}
+    .acesso-valor{flex:1;min-width:0;font-family:var(--font-mono);font-size:.92rem;overflow-wrap:anywhere}
+    .acesso-obs{margin:8px 0 0;color:var(--txt-dim);font-size:.88rem}
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div class="page-head">
+      <div>
+        <h1>Dados</h1>
+        <p class="muted small" style="margin:4px 0 0;max-width:60ch">
+          Logins das contas da casa. Ficam só no banco do servidor — nunca vão para o git.
+        </p>
+      </div>
+      <div class="spacer" style="flex:1"></div>
+      <div class="header-actions wrap">
+        <button class="btn btn-primary btn-sm" type="button" id="btn-novo">+ Novo acesso</button>
+      </div>
+    </div>
+
+    <div id="lista"><div class="skeleton" style="height:110px;margin-bottom:10px"></div><div class="skeleton" style="height:110px"></div></div>
+  </main>
+
+  <script src="/js/core.js?v=3.14"></script>
+  <script>
+  (function () {
+    App.mount('dados');
+
+    var E = App.escapeHtml;
+    var S = { acessos: [], visiveis: {} };
+    var elLista = document.getElementById('lista');
+
+    function carregar() {
+      return App.api('/acessos').then(function (d) {
+        S.acessos = (d && d.acessos) || [];
+        render();
+      }).catch(function (e) {
+        elLista.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
+          '<div class="empty-icon">⚠️</div><p>Não foi possível carregar os dados.</p>' +
+          '<p class="muted small">' + E(e && e.message ? e.message : '') + '</p></div></div></div>';
+      });
+    }
+
+    function render() {
+      if (!S.acessos.length) {
+        elLista.innerHTML = '<div class="card"><div class="card-body"><div class="empty">' +
+          '<div class="empty-icon">🔑</div><p class="strong">Nenhum acesso cadastrado</p></div></div></div>';
+        return;
+      }
+      var servicos = [];
+      S.acessos.forEach(function (a) { if (servicos.indexOf(a.servico) < 0) servicos.push(a.servico); });
+      var html = '';
+      servicos.forEach(function (sv) {
+        var doGrupo = S.acessos.filter(function (a) { return a.servico === sv; });
+        html += '<div class="grupo-head"><span class="grupo-nome">' + E(sv) + '</span>' +
+          '<span class="grupo-linha"></span></div>';
+        doGrupo.forEach(function (a) { html += card(a); });
+      });
+      elLista.innerHTML = html;
+    }
+
+    function card(a) {
+      var ver = !!S.visiveis[a.id];
+      return '<div class="card acesso-card"><div class="card-body">' +
+        '<div class="acesso-topo"><span class="acesso-rotulo">' + E(a.rotulo || a.servico) + '</span>' +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="editar" data-id="' + a.id + '">✏️ Editar</button>' +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="remover" data-id="' + a.id + '" aria-label="Remover">🗑️</button>' +
+        '</div>' +
+        '<div class="acesso-linha"><span class="acesso-campo">Login</span>' +
+          '<span class="acesso-valor">' + E(a.login) + '</span>' +
+          '<button class="btn btn-outline btn-sm" type="button" data-acao="copiar-login" data-id="' + a.id + '">📋 Copiar</button></div>' +
+        '<div class="acesso-linha"><span class="acesso-campo">Senha</span>' +
+          '<span class="acesso-valor">' + (ver ? E(a.senha) : '••••••••') + '</span>' +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="ver" data-id="' + a.id + '">' + (ver ? '🙈 Ocultar' : '👁️ Ver') + '</button>' +
+          '<button class="btn btn-outline btn-sm" type="button" data-acao="copiar-senha" data-id="' + a.id + '">📋 Copiar</button></div>' +
+        (a.obs ? '<p class="acesso-obs">' + E(a.obs) + '</p>' : '') +
+      '</div></div>';
+    }
+
+    document.addEventListener('click', function (ev) {
+      var el = ev.target.closest && ev.target.closest('[data-acao]');
+      if (!el) return;
+      var id = Number(el.getAttribute('data-id'));
+      var a = S.acessos.filter(function (x) { return x.id === id; })[0];
+      if (!a) return;
+      var acao = el.getAttribute('data-acao');
+      if (acao === 'copiar-login') App.copiar(a.login);
+      else if (acao === 'copiar-senha') App.copiar(a.senha);
+      else if (acao === 'ver') { S.visiveis[id] = !S.visiveis[id]; render(); }
+      else if (acao === 'editar') abrirForm(a);
+      else if (acao === 'remover') remover(a);
+    });
+
+    function remover(a) {
+      App.confirmar({
+        titulo: 'Remover acesso',
+        texto: 'Apagar o login de "' + (a.rotulo || a.servico) + '"?',
+        ok: 'Remover', cancelar: 'Cancelar', perigo: true
+      }).then(function (sim) {
+        if (!sim) return;
+        return App.api('/acessos/' + a.id, { method: 'DELETE' }).then(function () {
+          App.toast('Acesso removido.', 'ok');
+          return carregar();
+        });
+      }).catch(function () {});
+    }
+
+    function abrirForm(a) {
+      var novo = !a;
+      function v(k) { return novo ? '' : E(a[k] || ''); }
+      var html =
+        '<div class="stack form-grid">' +
+          '<div class="field"><label class="field-label" for="f-servico">Serviço</label>' +
+            '<input class="input" id="f-servico" type="text" maxlength="60" placeholder="Ex.: Sabesp" value="' + v('servico') + '"></div>' +
+          '<div class="field"><label class="field-label" for="f-rotulo">Identificação (opcional)</label>' +
+            '<input class="input" id="f-rotulo" type="text" maxlength="60" placeholder="Ex.: Relógio 1" value="' + v('rotulo') + '"></div>' +
+          '<div class="field"><label class="field-label" for="f-login">Login</label>' +
+            '<input class="input" id="f-login" type="text" autocomplete="off" value="' + v('login') + '"></div>' +
+          '<div class="field"><label class="field-label" for="f-senha">Senha</label>' +
+            '<input class="input" id="f-senha" type="text" autocomplete="off" value="' + v('senha') + '"></div>' +
+          '<div class="field"><label class="field-label" for="f-obs">Observação (opcional)</label>' +
+            '<input class="input" id="f-obs" type="text" maxlength="200" value="' + v('obs') + '"></div>' +
+        '</div>';
+      var foot = '<button class="btn btn-ghost" type="button" data-fechar>Cancelar</button>' +
+                 '<button class="btn btn-primary" type="button" id="f-salvar">' + (novo ? 'Criar' : 'Salvar') + '</button>';
+      var m = App.modal({ titulo: novo ? 'Novo acesso' : 'Editar acesso', html: html, foot: foot });
+      function q(sel) { return m.el.querySelector(sel); }
+      q('[data-fechar]').addEventListener('click', function () { m.fechar(); });
+      q('#f-salvar').addEventListener('click', function () {
+        var body = {
+          servico: q('#f-servico').value.trim(),
+          rotulo: q('#f-rotulo').value.trim(),
+          login: q('#f-login').value.trim(),
+          senha: q('#f-senha').value,
+          obs: q('#f-obs').value.trim()
+        };
+        if (!body.servico) { App.toast('Informe o serviço.', 'err'); return; }
+        var req = novo
+          ? App.api('/acessos', { method: 'POST', body: body })
+          : App.api('/acessos/' + a.id, { method: 'PUT', body: body });
+        req.then(function () {
+          m.fechar();
+          App.toast(novo ? 'Acesso criado.' : 'Acesso salvo.', 'ok');
+          return carregar();
+        }).catch(function () {});
+      });
+    }
+
+    document.getElementById('btn-novo').addEventListener('click', function () { abrirForm(null); });
+
+    carregar();
+  })();
+  </script>
+</body>
+</html>

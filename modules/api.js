@@ -732,6 +732,51 @@ router.delete('/regras/:id', h((req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Dados (logins das contas) ────────────────────────────────────
+
+function camposAcesso(b) {
+  const servico = String(b.servico || '').trim();
+  if (!servico) throw new Error('Informe o serviço (ex.: Sabesp)');
+  return {
+    servico,
+    rotulo: String(b.rotulo || '').trim() || null,
+    login: String(b.login || '').trim(),
+    senha: String(b.senha == null ? '' : b.senha),
+    obs: String(b.obs || '').trim() || null,
+  };
+}
+
+// senha nunca deve ficar em cache de navegador/proxy
+router.use('/acessos', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+router.get('/acessos', h((req, res) => {
+  res.json({ acessos: db.prepare('SELECT * FROM acessos ORDER BY ordem, id').all() });
+}));
+
+router.post('/acessos', h((req, res) => {
+  const a = camposAcesso(req.body || {});
+  a.ordem = (db.prepare('SELECT COALESCE(MAX(ordem), 0) AS m FROM acessos').get().m) + 1;
+  const info = db.prepare(`INSERT INTO acessos (ordem, servico, rotulo, login, senha, obs)
+    VALUES (@ordem, @servico, @rotulo, @login, @senha, @obs)`).run(a);
+  res.json({ ok: true, id: info.lastInsertRowid });
+}));
+
+router.put('/acessos/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  if (!db.prepare('SELECT id FROM acessos WHERE id = ?').get(id)) return falha(res, 404, 'Acesso não encontrado');
+  const a = camposAcesso(req.body || {});
+  db.prepare(`UPDATE acessos SET servico = @servico, rotulo = @rotulo, login = @login,
+    senha = @senha, obs = @obs WHERE id = @id`).run({ ...a, id });
+  res.json({ ok: true });
+}));
+
+router.delete('/acessos/:id', h((req, res) => {
+  const id = toInt(req.params.id);
+  if (!db.prepare('SELECT id FROM acessos WHERE id = ?').get(id)) return falha(res, 404, 'Acesso não encontrado');
+  db.prepare('DELETE FROM acessos WHERE id = ?').run(id);
+  res.json({ ok: true });
+}));
+
 // ── fallback ─────────────────────────────────────────────────────
 
 router.use((req, res) => falha(res, 404, 'Rota não encontrada'));
