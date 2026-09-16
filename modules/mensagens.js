@@ -175,9 +175,10 @@ function msgAtrasados(ctx) {
     const sub = m.itens.length > 1 ? `\n_subtotal: ${moeda(m.subtotal)}_` : '';
     return `📅 *${m.label}*\n${linhas}${sub}`;
   }).join('\n\n');
-  const intro = meses.length === 1 ? 'Ainda está em aberto:' : `Ainda estão em aberto (${meses.length} meses):`;
-  return `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL ATRASADO: ${moeda(total)}*\n\n` +
-    'Por favor, regularize assim que puder. Se já pagou, me avisa que eu dou baixa 🙏';
+  const nomes = meses.map((m) => m.label);
+  const lista = nomes.length > 1 ? `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}` : nomes[0];
+  const intro = `${meses.length === 1 ? 'Mês em atraso' : `Meses em atraso (${meses.length})`}: *${lista}*`;
+  return `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL ATRASADO: ${moeda(total)}*`;
 }
 
 // meses em aberto (só contas) anteriores a ano/mes
