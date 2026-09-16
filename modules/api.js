@@ -429,7 +429,9 @@ router.post('/mensagens/teste', h((req, res) => {
     if (!casa) return falha(res, 404, 'Casa não encontrada no mês');
     if (casa.vazia) throw new Error('Casa vaga não gera mensagem');
     if (!telefoneNormalizado) telefoneNormalizado = msgs.normalizarTelefone(casa.telefone);
-    texto = msgs.gerarMensagem(msgs.ctxDaCasa(casa, payload), modelo);
+    const ctxCasa = msgs.ctxDaCasa(casa, payload);
+    if (modelo === 'atrasados') ctxCasa.atrasados = msgs.atrasadosAntesDe(casa.casa_id, ano, mes);
+    texto = msgs.gerarMensagem(ctxCasa, modelo);
   } else {
     // casa fictícia de exemplo — nunca grava nada
     const ctx = {
@@ -444,6 +446,10 @@ router.post('/mensagens/teste', h((req, res) => {
         aluguel: { valor: 350, pago: false, pago_em: null, vencimento: null },
         outros: { valor: 0, pago: false, pago_em: null, descricao: null },
       },
+      atrasados: [
+        { label: 'EXEMPLO/2026', subtotal: 124.2, itens: [
+          { emoji: '💧', nome: 'Água', valor: 45.9 }, { emoji: '💡', nome: 'Luz', valor: 78.3 }] },
+      ],
     };
     texto = msgs.gerarMensagem(ctx, modelo);
   }

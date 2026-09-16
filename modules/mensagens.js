@@ -10,7 +10,7 @@
 const db = require('./db');
 const calc = require('./calculo');
 
-const MODELOS = ['cobranca', 'lembrete', 'recibo'];
+const MODELOS = ['cobranca', 'lembrete', 'recibo', 'atrasados'];
 
 // O aluguel é combinado/cobrado à parte das contas, então NÃO entra nas
 // mensagens. Para voltar a incluí-lo, basta trocar esta constante para true.
@@ -160,8 +160,34 @@ function msgRecibo(ctx) {
   return `${cab}\n\n${linhas}\n\n💰 Total pago: *${moeda(totalPago)}*\n\n${rodape}`;
 }
 
+// "Atrasados": mensagem separada só com as contas de meses ANTERIORES ao mês
+// escolhido que ainda estão em aberto (o mês atual vai na cobrança normal).
+// ctx.atrasados = [{ label, itens:[{emoji,nome,valor}], subtotal }]
+function msgAtrasados(ctx) {
+  const cab = `⚠️ *Contas em atraso — Casa ${ctx.casa_str} (${ctx.inquilino})*`;
+  const meses = ctx.atrasados || [];
+  if (!meses.length) {
+    return `${cab}\n\n✅ Nenhuma conta atrasada antes de *${ctx.label}*. Obrigado! 🙏`;
+  }
+  const total = calc.round2(meses.reduce((s, m) => s + m.subtotal, 0));
+  const blocos = meses.map((m) => {
+    const linhas = m.itens.map((i) => `${i.emoji} ${i.nome}: ${moeda(i.valor)}`).join('\n');
+    const sub = m.itens.length > 1 ? `\n_subtotal: ${moeda(m.subtotal)}_` : '';
+    return `📅 *${m.label}*\n${linhas}${sub}`;
+  }).join('\n\n');
+  const intro = meses.length === 1 ? 'Ainda está em aberto:' : `Ainda estão em aberto (${meses.length} meses):`;
+  return `${cab}\n${intro}\n\n${blocos}\n\n💰 *TOTAL ATRASADO: ${moeda(total)}*\n\n` +
+    'Por favor, regularize assim que puder. Se já pagou, me avisa que eu dou baixa 🙏';
+}
+
+// meses em aberto (só contas) anteriores a ano/mes
+function atrasadosAntesDe(casaId, ano, mes) {
+  return mesesEmAberto(casaId, false).filter((m) => m.ano * 100 + m.mes < ano * 100 + mes);
+}
+
 function gerarMensagem(ctx, modelo) {
   if (!MODELOS.includes(modelo)) throw new Error('Modelo de mensagem inválido');
+  if (modelo === 'atrasados') return msgAtrasados(ctx);
   if (modelo === 'lembrete') return msgLembrete(ctx);
   if (modelo === 'recibo') return msgRecibo(ctx);
   return msgCobranca(ctx);
@@ -179,7 +205,13 @@ function gerarMensagensDoMes(ano, mes, modelo) {
   const mensagens = payload.casas
     .filter((c) => !c.vazia)
     .map((c) => {
-      const texto = gerarMensagem(ctxDaCasa(c, payload), modelo);
+      const ctx = ctxDaCasa(c, payload);
+      let totalAberto = c.contas_aberto;
+      if (modelo === 'atrasados') {
+        ctx.atrasados = atrasadosAntesDe(c.casa_id, ano, mes);
+        totalAberto = calc.round2(ctx.atrasados.reduce((s, m) => s + m.subtotal, 0));
+      }
+      const texto = gerarMensagem(ctx, modelo);
       const tel = normalizarTelefone(c.telefone);
       return {
         casa_id: c.casa_id,
@@ -191,8 +223,9 @@ function gerarMensagensDoMes(ano, mes, modelo) {
         texto,
         wa_url: waUrl(tel, texto),
         // aqui "aberto/pago" = só as contas (o aluguel não entra na mensagem)
-        total_aberto: c.contas_aberto,
-        tudo_pago: c.contas_quitadas,
+        // no modelo "atrasados", só o que ficou dos meses anteriores
+        total_aberto: totalAberto,
+        tudo_pago: modelo === 'atrasados' ? !(totalAberto > 0) : c.contas_quitadas,
         enviado_em: enviadoPorCasa[c.casa_id] || null,
       };
     });
@@ -573,6 +606,7 @@ function textoRegras() {
 }
 
 module.exports = {
+  atrasadosAntesDe,
   MODELOS,
   gerarMensagem,
   gerarMensagensDoMes,

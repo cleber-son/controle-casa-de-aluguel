@@ -83,7 +83,8 @@
     var MODELOS = [
       { id: 'cobranca', nome: 'Cobrança', desc: 'Contas do mês e total em aberto' },
       { id: 'lembrete', nome: 'Lembrete', desc: 'Aviso curto de vencimento' },
-      { id: 'recibo',   nome: 'Recibo',   desc: 'Confirmação do que já foi pago' }
+      { id: 'recibo',   nome: 'Recibo',   desc: 'Confirmação do que já foi pago' },
+      { id: 'atrasados', nome: 'Atrasados', desc: 'Só as contas de meses anteriores ainda em aberto' }
     ];
 
     var state = {
@@ -413,7 +414,12 @@
       var lista = msgs();
       var aviso = '';
 
-      if (state.modelo !== 'recibo' && !(resumo.total_aberto > 0)) {
+      if (state.modelo === 'atrasados' && !(resumo.total_aberto > 0)) {
+        aviso =
+          '<div class="card card-accent-brand" style="margin-bottom:14px"><div class="card-body">' +
+            '<p class="strong" style="margin:0">Ninguém com contas atrasadas antes de ' + esc(labelMes()) + ' 🎉</p>' +
+          '</div></div>';
+      } else if (state.modelo !== 'recibo' && !(resumo.total_aberto > 0)) {
         aviso =
           '<div class="card card-accent-luz" style="margin-bottom:14px"><div class="card-body">' +
             '<p class="strong" style="margin:0 0 4px">Nenhum valor em aberto neste mês</p>' +
