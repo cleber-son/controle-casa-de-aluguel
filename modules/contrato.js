@@ -160,13 +160,17 @@ function blocoLocador(local, partes) {
   const lista = props.length ? props : [{}];
   const quals = lista.map((p) => qualificacao(p)).join('; e ');
   const plural = lista.length > 1;
-  if (!LOCAIS[local].procuracao) {
-    return `<p><strong>LOCADOR${plural ? 'ES' : ''}:</strong> ${quals}.</p>`;
-  }
-  return `<p><strong>LOCADOR${plural ? 'ES' : ''}:</strong> ${quals}; ` +
+  const rotulo = `LOCADOR${plural ? 'ES' : ''}`;
+  if (!LOCAIS[local].procuracao) return quadroParte('locador', rotulo, `${quals}.`);
+  return quadroParte('locador', rotulo, `${quals}; ` +
     `${plural ? 'neste ato representados' : 'neste ato representado(a)'} por seu procurador ` +
     `${qualificacao(partes.procurador)}, nos termos da procuração ${v(partes.procuracao)}, ` +
-    'cuja cópia integra este contrato.</p>';
+    'cuja cópia integra este contrato.');
+}
+
+// quadro colorido de uma parte (locador / locatário) no topo do contrato
+function quadroParte(tipo, rotulo, texto) {
+  return `<div class="parte parte-${tipo}"><div class="parte-rotulo">${rotulo}</div><p>${texto}</p></div>`;
 }
 
 // ── contrato ─────────────────────────────────────────────────────
@@ -215,10 +219,11 @@ function gerar({ local, partes, contrato, casa, regras }) {
   const rateio = local === 'diadema';
 
   let n = 0;
-  const cl = (titulo, corpo) => `<h3>CLÁUSULA ${++n}ª — ${titulo}</h3>${corpo}`;
+  const cl = (titulo, corpo) => `<section class="clausula"><h3><span class="cl-num">CLÁUSULA ${++n}ª</span>` +
+    `<span class="cl-titulo">${titulo}</span></h3>${corpo}</section>`;
   const p = (t) => `<p>${t}</p>`;
   // parágrafos numerados dentro da cláusula: "Parágrafo 1º —"
-  const pars = (lista) => lista.map((t, i) => (i === 0 ? p(t) : p(`<strong>§ ${i}º</strong> ${t}`))).join('');
+  const pars = (lista) => lista.map((t, i) => (i === 0 ? p(t) : `<p class="par"><span class="par-num">§ ${i}º</span> ${t}</p>`)).join('');
 
   const ocupantes = String(d.ocupantes || '').trim();
   const animais = d.animais === 'autorizado'
@@ -236,11 +241,12 @@ function gerar({ local, partes, contrato, casa, regras }) {
         'rescisão previstas neste contrato, além do pagamento de qualquer dano, limpeza ou dedetização necessária.'];
 
   const corpo = [
-    `<h1>CONTRATO DE LOCAÇÃO RESIDENCIAL</h1>`,
+    '<header class="topo"><h1>CONTRATO DE LOCAÇÃO RESIDENCIAL</h1>' +
+      `<div class="topo-sub">${esc(imovelDesc || 'Imóvel')} · ${esc(cfg.nome)} · Lei nº 8.245/91</div></header>`,
     blocoLocador(local, partes),
-    `<p><strong>LOCATÁRIO:</strong> ${qualificacao(inq, { endereco: false })}` +
+    quadroParte('locatario', 'LOCATÁRIO', `${qualificacao(inq, { endereco: false })}` +
       `${inq.telefone ? `, telefone ${esc(inq.telefone)}` : ''}` +
-      `${inq.email ? `, e-mail ${esc(inq.email)}` : ''}.</p>`,
+      `${inq.email ? `, e-mail ${esc(inq.email)}` : ''}.`),
     p('As partes acima identificadas têm entre si, justo e contratado, a locação do imóvel descrito ' +
       'abaixo, que se regerá pela Lei nº 8.245/91 e pelas cláusulas seguintes, que as partes leram e aceitam.'),
 
@@ -422,10 +428,10 @@ function gerar({ local, partes, contrato, casa, regras }) {
   }
   ass.push(assinatura('LOCATÁRIO', esc(inq.nome || '')));
   if (d.garantia === 'fiador') ass.push(assinatura('FIADOR', ''));
-  corpo.push(`<div class="assinaturas">${ass.join('')}</div>`);
+  corpo.push(`<h3 class="secao-ass">ASSINATURAS</h3><div class="assinaturas">${ass.join('')}</div>`);
 
   const t1 = d.testemunha1 || {}, t2 = d.testemunha2 || {};
-  corpo.push('<p class="testemunhas-titulo"><strong>TESTEMUNHAS:</strong></p>' +
+  corpo.push('<h3 class="secao-ass">TESTEMUNHAS</h3>' +
     `<div class="assinaturas">${testemunha(t1)}${testemunha(t2)}</div>`);
 
   if (anexarRegras) {
@@ -469,24 +475,47 @@ function pagina({ titulo, corpo }) {
   .barra span{opacity:.75;flex:1;min-width:200px}
   .folha{max-width:210mm;margin:16px auto;background:#fff;padding:20mm 18mm;
     box-shadow:0 2px 14px rgba(0,0,0,.15);outline:none}
-  h1{text-align:center;font-size:15pt;margin:0 0 18px;letter-spacing:.5px}
-  h2{text-align:center;font-size:13pt;margin:0 0 14px}
-  h3{font-size:12pt;margin:16px 0 6px}
+  /* cores: azul = locador, verde = locatário, vinho = cláusulas */
+  .folha{--azul:#1d4e89;--azul-bg:#eef4fb;--verde:#1f7a4d;--verde-bg:#edf7f1;--cor:#7a1f2b;--cor-bg:#f8eef0}
+  .topo{text-align:center;border-bottom:3px double var(--cor);padding-bottom:10px;margin-bottom:18px}
+  h1{font-size:16pt;margin:0;letter-spacing:1px;color:var(--cor)}
+  .topo-sub{font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;color:#555;letter-spacing:.5px;margin-top:4px}
+  h2{text-align:center;font-size:13pt;margin:0 0 14px;color:var(--cor)}
   p{margin:0 0 8px;text-align:justify}
+  strong{color:#000}
+  .parte{border:1px solid;border-left-width:6px;border-radius:6px;padding:10px 14px 4px;margin:0 0 12px;break-inside:avoid}
+  .parte-rotulo{display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:9pt;font-weight:700;
+    letter-spacing:1.5px;color:#fff;padding:2px 10px;border-radius:3px;margin-bottom:6px}
+  .parte-locador{border-color:var(--azul);background:var(--azul-bg)}
+  .parte-locador .parte-rotulo{background:var(--azul)}
+  .parte-locador strong{color:var(--azul)}
+  .parte-locatario{border-color:var(--verde);background:var(--verde-bg)}
+  .parte-locatario .parte-rotulo{background:var(--verde)}
+  .parte-locatario strong{color:var(--verde)}
+  .clausula{margin-top:16px}
+  h3{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:11.5pt;margin:0 0 8px;
+    padding:5px 10px;background:var(--cor-bg);border-left:5px solid var(--cor);border-radius:0 4px 4px 0;
+    break-after:avoid;page-break-after:avoid}
+  .cl-num{font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;font-weight:700;color:#fff;background:var(--cor);
+    padding:1px 8px;border-radius:3px;letter-spacing:.5px;white-space:nowrap}
+  .cl-titulo{color:var(--cor);letter-spacing:.3px}
+  .par-num{font-weight:700;color:var(--cor)}
+  .secao-ass{margin-top:26px}
   ol{padding-left:22px}
   li{margin-bottom:6px;text-align:justify}
+  li::marker{color:var(--cor);font-weight:700}
   .lacuna{white-space:nowrap}
   .local-data{text-align:right;margin:22px 0 10px}
-  .assinaturas{display:flex;flex-wrap:wrap;gap:22px 40px;justify-content:space-between;margin:28px 0 8px}
+  .assinaturas{display:flex;flex-wrap:wrap;gap:22px 40px;justify-content:space-between;margin:14px 0 8px}
   .ass{flex:1 1 45%;min-width:200px;text-align:center;break-inside:avoid}
-  .ass-linha{border-top:1px solid #111;margin:30px 0 4px}
+  .ass-linha{border-top:1px solid #111;margin:34px 0 4px}
   .ass-nome{font-weight:bold;font-size:11pt}
-  .ass-papel{font-size:10pt}
-  .testemunhas-titulo{margin-top:22px}
+  .ass-papel{font-family:Arial,Helvetica,sans-serif;font-size:8.5pt;letter-spacing:1px;color:var(--cor);font-weight:700}
   .anexo{break-before:page;page-break-before:always;margin-top:30px}
   @media screen and (max-width:700px){.folha{padding:18px 16px;margin:0}p,li{text-align:left}}
   @media print{
     html,body{background:#fff}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .barra{display:none}
     .folha{box-shadow:none;margin:0;padding:0;max-width:none}
   }
