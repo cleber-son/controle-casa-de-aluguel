@@ -168,6 +168,15 @@ function blocoLocador(local, partes) {
     'cuja cópia integra este contrato.');
 }
 
+// subtítulo do topo: "Casa 3 · Rua Berlim, nº 106…" — "Casa" sozinho não diz nada, sai só o endereço
+function topoImovel(desc, endereco, cidade) {
+  const d = String(desc || '').trim(), e = String(endereco || '').trim();
+  const partes = [];
+  if (d && d.toLowerCase() !== 'casa') partes.push(esc(d));
+  partes.push(esc(e || cidade));
+  return partes.join(' · ');
+}
+
 // quadro colorido de uma parte (locador / locatário) no topo do contrato
 function quadroParte(tipo, rotulo, texto) {
   return `<div class="parte parte-${tipo}"><div class="parte-rotulo">${rotulo}</div><p>${texto}</p></div>`;
@@ -242,7 +251,7 @@ function gerar({ local, partes, contrato, casa, regras }) {
 
   const corpo = [
     '<header class="topo"><h1>CONTRATO DE LOCAÇÃO RESIDENCIAL</h1>' +
-      `<div class="topo-sub">${esc(imovelDesc || 'Imóvel')} · ${esc(cfg.nome)} · Lei nº 8.245/91</div></header>`,
+      `<div class="topo-sub">${topoImovel(imovelDesc, partes.endereco_imovel, cfg.nome)} · Lei nº 8.245/91</div></header>`,
     blocoLocador(local, partes),
     quadroParte('locatario', 'LOCATÁRIO', `${qualificacao(inq, { endereco: false })}` +
       `${inq.telefone ? `, telefone ${esc(inq.telefone)}` : ''}` +
