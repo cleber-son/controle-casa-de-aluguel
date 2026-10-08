@@ -125,6 +125,28 @@ CREATE TABLE IF NOT EXISTS acessos (
   obs       TEXT
 );
 
+-- Aba Contratos. "local" separa os dois imóveis: 'diadema' (as casas do
+-- quintal, assinadas por procuração) e 'porto_seguro' (imóvel próprio).
+-- Os dados das partes e de cada contrato ficam em JSON — são texto livre
+-- que só o gerador do contrato (modules/contrato.js) interpreta.
+CREATE TABLE IF NOT EXISTS contratos_partes (
+  local  TEXT PRIMARY KEY CHECK(local IN ('diadema','porto_seguro')),
+  dados  TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS contratos (
+  id             INTEGER PRIMARY KEY,
+  local          TEXT NOT NULL CHECK(local IN ('diadema','porto_seguro')),
+  casa_id        INTEGER REFERENCES casas(id),
+  status         TEXT NOT NULL DEFAULT 'rascunho' CHECK(status IN ('rascunho','assinado','encerrado')),
+  dados          TEXT NOT NULL DEFAULT '{}',
+  arquivo_nome   TEXT,
+  arquivo_mime   TEXT,
+  arquivo_path   TEXT,
+  criado_em      TEXT NOT NULL DEFAULT (datetime('now')),
+  atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_lanc_mes ON lancamentos(mes_id);
 CREATE INDEX IF NOT EXISTS idx_luz_mes  ON contas_luz(mes_id);
 CREATE INDEX IF NOT EXISTS idx_env_mes  ON envios_wa(mes_id);
@@ -194,5 +216,7 @@ if (totalRegras === 0) {
 }
 
 log(`db: quintal.db pronto em ${DB_PATH}`);
+
+db.DB_DIR = DB_DIR;   // a aba Contratos guarda os arquivos anexados em DB_DIR/contratos
 
 module.exports = db;

@@ -20,7 +20,7 @@ const db = require('./modules/db');
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const SECRET = process.env.SESSION_SECRET || '';
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
-const VERSION = '3.15.1';
+const VERSION = '3.16.0';
 
 // Quanto tempo um dispositivo lembrado continua logado (renovado a cada visita).
 const DIAS_LEMBRAR = parseInt(process.env.SESSAO_DIAS || '365', 10);
@@ -315,11 +315,22 @@ const PAGINAS = {
   '/repasse':   'repasse.html',
   '/regras':    'regras.html',
   '/dados':     'dados.html',
+  '/contratos': 'contratos.html',
 };
 
 for (const [rota, arquivo] of Object.entries(PAGINAS)) {
   app.get(rota, requireAuth, (req, res) => res.sendFile(path.join(PUBLIC_DIR, arquivo)));
 }
+
+// Contrato gerado, pronto para imprimir / salvar em PDF
+app.get('/contratos/:id/documento', requireAuth, (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(apiRouter.documentoContrato(req.params.id));
+  } catch (e) {
+    res.status(e.statusCode || 400).send(e.message || 'Erro ao gerar o contrato');
+  }
+});
 
 // Assets (o conteúdo é genérico; o que é sensível vive só na API)
 // no-cache = o navegador sempre revalida (ETag devolve 304, é barato).

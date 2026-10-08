@@ -64,6 +64,7 @@
     { chave: 'historico', href: '/historico', titulo: 'Histórico', icone: '📊' },
     { chave: 'repasse',   href: '/repasse',   titulo: 'Repasse',   icone: '🤝' },
     { chave: 'regras',    href: '/regras',    titulo: 'Regras',    icone: '📋' },
+    { chave: 'contratos', href: '/contratos', titulo: 'Contratos', icone: '📝' },
     { chave: 'dados',     href: '/dados',     titulo: 'Dados',     icone: '🔑' }
   ];
 

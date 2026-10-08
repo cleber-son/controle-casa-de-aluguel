@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="robots" content="noindex">
+  <script>/* tema antes da pintura, evita piscar */(function(){try{var t=localStorage.getItem('quintal.tema');if(t!=='claro'&&t!=='escuro'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'claro':'escuro';}document.documentElement.setAttribute('data-theme',t==='claro'?'light':'dark');if(t==='claro'){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content','#ffffff');}}catch(e){}})();</script>
+  <title>Quintal — Contratos</title>
+  <link rel="stylesheet" href="/css/app.css?v=3.16">
+  <style>
+    /* --- específico da aba Contratos --- */
+    .page-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .page-head h1{margin:0;font-size:1.5rem;letter-spacing:.2px}
+
+    .partes-card{margin:12px 0 18px}
+    .partes-topo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .partes-titulo{font-weight:700;flex:1;min-width:0}
+    .partes-linha{margin:8px 0 0;color:var(--txt-dim);font-size:.9rem;overflow-wrap:anywhere}
+    .partes-linha b{color:var(--txt)}
+    .partes-falta{color:var(--warn-txt,#e0a400)}
+
+    .casa-card{margin-bottom:12px}
+    .casa-topo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .casa-nome{font-weight:750;flex:1;min-width:0}
+    .casa-nome small{font-weight:500;color:var(--txt-mute);margin-left:6px}
+
+    .ctt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line);margin-top:10px}
+    .ctt-info{flex:1 1 220px;min-width:0}
+    .ctt-nome{font-weight:600}
+    .ctt-meta{color:var(--txt-mute);font-size:.82rem}
+    .ctt-acoes{display:flex;gap:6px;flex-wrap:wrap}
+    .ctt.is-encerrado{opacity:.6}
+    .ctt-vazio{margin:10px 0 0;color:var(--txt-mute);font-size:.88rem}
+
+    .modal.modal-largo{width:min(820px,100%)}
+    .form-secao{margin:18px 0 8px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;font-size:.78rem;color:var(--txt-dim)}
+    .form-secao:first-child{margin-top:0}
+  </style>
+</head>
+<body>
+  <div id="app-header"></div>
+
+  <main class="container" id="app">
+    <div class="page-head">
+      <div>
+        <h1>Contratos</h1>
+        <p class="muted small" style="margin:4px 0 0;max-width:62ch">
+          Contrato de cada inquilino: o sistema monta o texto pronto para imprimir e você anexa a via assinada.
+        </p>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Imóvel" id="abas">
+      <button class="tab" type="button" role="tab" data-local="diadema">🏘️ Diadema</button>
+      <button class="tab" type="button" role="tab" data-local="porto_seguro">🏖️ Porto Seguro</button>
+    </div>
+
+    <div id="conteudo"><div class="skeleton" style="height:90px;margin:12px 0"></div><div class="skeleton" style="height:120px"></div></div>
+    <input type="file" id="f-upload" accept="application/pdf,image/jpeg,image/png,image/webp" hidden>
+  </main>
+
+  <script src="/js/core.js?v=3.16"></script>
+  <script>
+  (function () {
+    App.mount('contratos');
+
+    var E = App.escapeHtml;
+    var CHAVE_ABA = 'quintal.contratos.aba';
+    var NOMES = { diadema: 'Diadema', porto_seguro: 'Porto Seguro' };
+    var STATUS = {
+      rascunho:  { txt: 'Rascunho',  cls: 'badge-warn' },
+      assinado:  { txt: 'Assinado',  cls: 'badge-ok' },
+      encerrado: { txt: 'Encerrado', cls: 'badge-dim' }
+    };
+    var S = { local: 'diadema', dados: null, uploadId: null };
+    var elConteudo = document.getElementById('conteudo');
+
+    try { var salvo = localStorage.getItem(CHAVE_ABA); if (NOMES[salvo]) S.local = salvo; } catch (e) { /* ignora */ }
+
+    // ── helpers ─────────────────────────────────────────────────
+    function get(o, k) {
+      return k.split('.').reduce(function (a, p) { return a == null ? undefined : a[p]; }, o);
+    }
+    function set(o, k, val) {
+      var ps = k.split('.'), a = o;
+      for (var i = 0; i < ps.length - 1; i++) { if (a[ps[i]] == null) a[ps[i]] = {}; a = a[ps[i]]; }
+      a[ps[ps.length - 1]] = val;
+    }
+    function fimContrato(iso, meses) {
+      if (!iso || !(meses > 0)) return null;
+      var p = iso.split('-').map(Number);
+      var d = new Date(p[0], p[1] - 1 + Number(meses), p[2]);
+      if (d.getDate() !== p[2]) d.setDate(0);   // mesma regra do servidor (modules/contrato.js)
+      else d.setDate(d.getDate() - 1);
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    }
+
+    // Campo de formulário. k = caminho no objeto ("inquilino.nome").
+    function campo(obj, k, label, o) {
+      o = o || {};
+      var id = 'f-' + k.replace(/\./g, '-');
+      var val = get(obj, k);
+      if (val == null) val = o.padrao != null ? o.padrao : '';
+      var cls = 'field' + (o.full ? ' full' : '');
+      var lab = '<label class="field-label" for="' + id + '">' + E(label) + '</label>';
+      var hint = o.hint ? '<span class="field-hint">' + E(o.hint) + '</span>' : '';
+      var attrs = ' id="' + id + '" data-k="' + k + '"' + (o.tipo === 'number' ? ' data-num="1"' : '');
+      var ctrl;
+      if (o.opcoes) {
+        ctrl = '<select class="select"' + attrs + '>' + o.opcoes.map(function (op) {
+          var v = typeof op === 'string' ? op : op[0], t = typeof op === 'string' ? op : op[1];
+          return '<option value="' + E(v) + '"' + (String(val) === String(v) ? ' selected' : '') + '>' + E(t) + '</option>';
+        }).join('') + '</select>';
+      } else if (o.area) {
+        ctrl = '<textarea class="textarea" rows="' + (o.area === true ? 3 : o.area) + '"' + attrs + '>' + E(val) + '</textarea>';
+      } else {
+        ctrl = '<input class="input" type="' + (o.tipo || 'text') + '"' + attrs +
+          (o.tipo === 'number' ? ' inputmode="decimal" step="any"' : '') +
+          (o.ph ? ' placeholder="' + E(o.ph) + '"' : '') + ' value="' + E(val) + '">';
+      }
+      return '<div class="' + cls + '"' + (o.grupo ? ' data-grupo="' + o.grupo + '"' : '') + '>' + lab + ctrl + hint + '</div>';
+    }
+    function secao(t) { return '<div class="form-secao full">' + E(t) + '</div>'; }
+
+    function lerForm(raiz, base) {
+      var out = JSON.parse(JSON.stringify(base || {}));
+      App.qsa('[data-k]', raiz).forEach(function (el) {
+        var v = el.type === 'checkbox' ? el.checked : el.value;
+        if (el.getAttribute('data-num') && v !== '') v = Number(v);   // input number já vem com ponto
+        set(out, el.getAttribute('data-k'), v);
+      });
+      return out;
+    }
+
+    function pessoaCampos(obj, pre, o) {
+      o = o || {};
+      var h = campo(obj, pre + '.nome', 'Nome completo', { full: true }) +
+        campo(obj, pre + '.nacionalidade', 'Nacionalidade', { ph: 'brasileiro(a)' }) +
+        campo(obj, pre + '.estado_civil', 'Estado civil', { opcoes: ['', 'solteiro(a)', 'casado(a)', 'divorciado(a)', 'viúvo(a)', 'em união estável'] }) +
+        campo(obj, pre + '.profissao', 'Profissão') +
+        campo(obj, pre + '.rg', 'RG') +
+        campo(obj, pre + '.cpf', 'CPF', { ph: '000.000.000-00' });
+      if (o.contato) h += campo(obj, pre + '.telefone', 'Telefone', { tipo: 'tel' }) + campo(obj, pre + '.email', 'E-mail', { tipo: 'email' });
+      if (o.endereco !== false) h += campo(obj, pre + '.endereco', 'Endereço (rua, nº, bairro, cidade/UF, CEP)', { full: true });
+      return h;
+    }
+
+    // ── carga e render ──────────────────────────────────────────
+    function carregar() {
+      return App.api('/contratos').then(function (d) {
+        S.dados = d;
+        render();
+      }).catch(function (e) {
+        elConteudo.innerHTML = '<div class="card" style="margin-top:12px"><div class="card-body"><div class="empty">' +
+          '<div class="empty-icon">⚠️</div><p>Não foi possível carregar os contratos.</p>' +
+          '<p class="muted small">' + E(e && e.message ? e.message : '') + '</p></div></div></div>';
+      });
+    }
+
+    function render() {
+      App.qsa('#abas .tab').forEach(function (b) {
+        var on = b.getAttribute('data-local') === S.local;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      if (!S.dados) return;
+      var html = cardPartes();
+      var meus = S.dados.contratos.filter(function (c) { return c.local === S.local; });
+      if (S.local === 'diadema') {
+        S.dados.casas.forEach(function (casa) {
+          var dela = meus.filter(function (c) { return c.casa_id === casa.id; });
+          html += '<div class="card casa-card"><div class="card-body">' +
+            '<div class="casa-topo"><span class="casa-nome">Casa ' + casa.numero +
+              '<small>' + E(casa.inquilino || (casa.ativa ? 'sem inquilino' : 'vaga')) + '</small></span>' +
+              '<button class="btn btn-outline btn-sm" type="button" data-acao="novo" data-casa="' + casa.id + '">+ Novo contrato</button>' +
+            '</div>' +
+            (dela.length ? dela.map(linhaContrato).join('') : '<p class="ctt-vazio">Nenhum contrato ainda.</p>') +
+          '</div></div>';
+        });
+      } else {
+        html += '<div class="card casa-card"><div class="card-body">' +
+          '<div class="casa-topo"><span class="casa-nome">Casa em Porto Seguro</span>' +
+            '<button class="btn btn-outline btn-sm" type="button" data-acao="novo">+ Novo contrato</button>' +
+          '</div>' +
+          (meus.length ? meus.map(linhaContrato).join('') : '<p class="ctt-vazio">Nenhum contrato ainda.</p>') +
+        '</div></div>';
+      }
+      elConteudo.innerHTML = html;
+    }
+
+    function cardPartes() {
+      var p = S.dados.partes[S.local] || {};
+      var props = (p.proprietarios || []).filter(function (x) { return x && x.nome; });
+      var falta = '<span class="partes-falta">não preenchido</span>';
+      var linhas = '<p class="partes-linha">' + (S.local === 'diadema' ? 'Proprietário(s): ' : 'Locador (você): ') +
+        (props.length ? '<b>' + E(props.map(function (x) { return x.nome; }).join(' e ')) + '</b>' : falta) + '</p>';
+      if (S.local === 'diadema') {
+        linhas += '<p class="partes-linha">Procurador (você): ' +
+          (p.procurador && p.procurador.nome ? '<b>' + E(p.procurador.nome) + '</b>' : falta) + '</p>';
+      }
+      linhas += '<p class="partes-linha">Imóvel: ' + (p.endereco_imovel ? E(p.endereco_imovel) : falta) + '</p>';
+      return '<div class="card partes-card card-accent-brand"><div class="card-body">' +
+        '<div class="partes-topo"><span class="partes-titulo">Partes do contrato — ' + NOMES[S.local] + '</span>' +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="partes">✏️ Editar</button></div>' +
+        linhas +
+        '<p class="partes-linha muted small">Vale para todos os contratos de ' + NOMES[S.local] + '.</p>' +
+      '</div></div>';
+    }
+
+    function linhaContrato(c) {
+      var d = c.dados || {};
+      var st = STATUS[c.status] || STATUS.rascunho;
+      var fim = fimContrato(d.inicio, d.prazo_meses);
+      var meta = [];
+      if (d.inicio) meta.push(App.dataBR(d.inicio) + (fim ? ' a ' + App.dataBR(fim) : ''));
+      if (d.valor_aluguel) meta.push(App.money(d.valor_aluguel) + '/mês');
+      if (S.local === 'porto_seguro' && d.imovel) meta.unshift(d.imovel);
+      return '<div class="ctt' + (c.status === 'encerrado' ? ' is-encerrado' : '') + '">' +
+        '<div class="ctt-info"><div class="ctt-nome">' + E((d.inquilino && d.inquilino.nome) || 'Inquilino não informado') +
+          ' <span class="badge ' + st.cls + '">' + st.txt + '</span>' +
+          (c.tem_arquivo ? ' <span class="badge badge-info">📎 assinado anexado</span>' : '') + '</div>' +
+          '<div class="ctt-meta">' + E(meta.join(' • ')) + '</div></div>' +
+        '<div class="ctt-acoes">' +
+          '<a class="btn btn-primary btn-sm" href="/contratos/' + c.id + '/documento" target="_blank" rel="noopener">📄 Gerar contrato</a>' +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="editar" data-id="' + c.id + '">✏️ Editar</button>' +
+          (c.tem_arquivo
+            ? '<a class="btn btn-outline btn-sm" href="/api/contratos/' + c.id + '/arquivo" target="_blank" rel="noopener">👁️ Ver assinado</a>'
+            : '<button class="btn btn-outline btn-sm" type="button" data-acao="anexar" data-id="' + c.id + '">📎 Anexar assinado</button>') +
+          '<button class="btn btn-ghost btn-sm" type="button" data-acao="mais" data-id="' + c.id + '" aria-label="Mais opções">⋯</button>' +
+        '</div></div>';
+    }
+
+    // ── eventos ─────────────────────────────────────────────────
+    App.on(document.getElementById('abas'), 'click', '.tab', function (ev, b) {
+      S.local = b.getAttribute('data-local');
+      try { localStorage.setItem(CHAVE_ABA, S.local); } catch (e) { /* ignora */ }
+      render();
+    });
+    function contratoPorId(id) {
+      return S.dados.contratos.filter(function (c) { return c.id === id; })[0];
+    }
+
+    elConteudo.addEventListener('click', function (ev) {
+      var el = ev.target.closest && ev.target.closest('[data-acao]');
+      if (!el) return;
+      var acao = el.getAttribute('data-acao');
+      var id = Number(el.getAttribute('data-id'));
+      if (acao === 'partes') return formPartes();
+      if (acao === 'novo') return formContrato(null, Number(el.getAttribute('data-casa')) || null);
+      var c = contratoPorId(id);
+      if (!c) return;
+      if (acao === 'editar') formContrato(c);
+      else if (acao === 'anexar') { S.uploadId = c.id; document.getElementById('f-upload').click(); }
+      else if (acao === 'mais') menuMais(c);
+    });
+
+    document.getElementById('f-upload').addEventListener('change', function () {
+      var arq = this.files && this.files[0];
+      var id = S.uploadId;
+      this.value = '';
+      if (!arq || !id) return;
+      if (arq.size > 15 * 1024 * 1024) { App.toast('Arquivo maior que 15 MB.', 'err'); return; }
+      App.toast('Enviando…', 'info');
+      fetch('/api/contratos/' + id + '/arquivo', {
+        method: 'PUT', credentials: 'same-origin', body: arq,
+        headers: { 'Content-Type': arq.type || 'application/octet-stream', 'X-Nome-Arquivo': encodeURIComponent(arq.name) }
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok || d.ok === false) throw new Error(d.erro || ('Erro ' + r.status));
+        });
+      }).then(function () {
+        App.toast('Contrato assinado anexado.', 'ok');
+        return carregar();
+      }).catch(function (e) { App.toast(e.message || 'Falha no envio.', 'err'); });
+    });
+
+    function menuMais(c) {
+      var nome = (c.dados.inquilino && c.dados.inquilino.nome) || 'este contrato';
+      var html = '<div class="stack">' +
+        (c.tem_arquivo
+          ? '<button class="btn btn-outline btn-block" type="button" data-m="trocar">📎 Trocar arquivo assinado</button>' +
+            '<button class="btn btn-ghost btn-block" type="button" data-m="tirar-arquivo">Remover arquivo anexado</button>'
+          : '') +
+        (c.status !== 'assinado' ? '<button class="btn btn-outline btn-block" type="button" data-m="st-assinado">✅ Marcar como assinado</button>' : '') +
+        (c.status !== 'encerrado' ? '<button class="btn btn-outline btn-block" type="button" data-m="st-encerrado">📦 Encerrar (inquilino saiu)</button>' : '') +
+        (c.status !== 'rascunho' ? '<button class="btn btn-ghost btn-block" type="button" data-m="st-rascunho">Voltar para rascunho</button>' : '') +
+        '<button class="btn btn-outline btn-block" type="button" data-m="copiar">📑 Duplicar (renovação)</button>' +
+        '<button class="btn btn-danger btn-block" type="button" data-m="apagar">🗑️ Apagar contrato</button>' +
+      '</div>';
+      var m = App.modal({ titulo: nome, html: html });
+      m.el.addEventListener('click', function (ev) {
+        var b = ev.target.closest && ev.target.closest('[data-m]');
+        if (!b) return;
+        var op = b.getAttribute('data-m');
+        m.fechar();
+        if (op === 'trocar') { S.uploadId = c.id; document.getElementById('f-upload').click(); }
+        else if (op.indexOf('st-') === 0) {
+          App.api('/contratos/' + c.id, { method: 'PUT', body: { status: op.slice(3) } })
+            .then(function () { App.toast('Situação atualizada.', 'ok'); return carregar(); }).catch(function () {});
+        } else if (op === 'copiar') {
+          var d = JSON.parse(JSON.stringify(c.dados));
+          var fim = fimContrato(d.inicio, d.prazo_meses);
+          if (fim) { var x = new Date(fim + 'T12:00:00'); x.setDate(x.getDate() + 1); d.inicio = x.toISOString().slice(0, 10); }
+          d.data_assinatura = App.hoje();
+          formContrato({ local: c.local, casa_id: c.casa_id, status: 'rascunho', dados: d }, null, true);
+        } else if (op === 'tirar-arquivo') {
+          App.confirmar({ titulo: 'Remover arquivo', texto: 'Apagar o arquivo assinado anexado a este contrato?', ok: 'Remover', perigo: true })
+            .then(function (sim) {
+              if (!sim) return;
+              return App.api('/contratos/' + c.id + '/arquivo', { method: 'DELETE' })
+                .then(function () { App.toast('Arquivo removido.', 'ok'); return carregar(); });
+            }).catch(function () {});
+        } else if (op === 'apagar') {
+          App.confirmar({ titulo: 'Apagar contrato', texto: 'Apagar o contrato de ' + nome + '? O arquivo anexado também é apagado.', ok: 'Apagar', perigo: true })
+            .then(function (sim) {
+              if (!sim) return;
+              return App.api('/contratos/' + c.id, { method: 'DELETE' })
+                .then(function () { App.toast('Contrato apagado.', 'ok'); return carregar(); });
+            }).catch(function () {});
+        }
+      });
+    }
+
+    // ── formulário: partes ──────────────────────────────────────
+    function formPartes() {
+      var local = S.local;
+      var p = JSON.parse(JSON.stringify(S.dados.partes[local] || {}));
+      var padrao = S.dados.padroes[local];
+      var diadema = local === 'diadema';
+      var html = '<div class="form-grid">' +
+        secao(diadema ? 'Proprietário 1 (dono das casas)' : 'Locador — você, proprietário') +
+        pessoaCampos(p, 'proprietarios.0') +
+        secao(diadema ? 'Proprietário 2 (opcional — ex.: cônjuge)' : 'Cônjuge / coproprietário (opcional)') +
+        pessoaCampos(p, 'proprietarios.1');
+      if (diadema) {
+        html += secao('Procurador — você') + pessoaCampos(p, 'procurador') +
+          campo(p, 'procuracao', 'Dados da procuração', { full: true, area: 2,
+            ph: 'lavrada no 1º Tabelião de Notas de Diadema/SP, livro 000, folhas 000, em 00/00/0000',
+            hint: 'Entra no contrato logo depois de "nos termos da procuração…".' });
+      }
+      html += secao('Imóvel e pagamento') +
+        campo(p, 'endereco_imovel', 'Endereço do imóvel', { full: true, ph: 'Rua…, nº…, bairro…, ' + (diadema ? 'Diadema/SP' : 'Porto Seguro/BA') + ', CEP…' }) +
+        campo(p, 'pagamento', 'Forma de pagamento do aluguel', { full: true, ph: 'PIX para a chave 000.000.000-00 (Fulano)' }) +
+        campo(p, 'foro', 'Foro (comarca)', { ph: padrao.foro }) +
+      '</div>';
+      var foot = '<button class="btn btn-ghost" type="button" data-fechar>Cancelar</button>' +
+                 '<button class="btn btn-primary" type="button" id="f-salvar">Salvar</button>';
+      var m = App.modal({ titulo: 'Partes — ' + NOMES[local], html: html, foot: foot, classe: 'modal-largo' });
+      m.el.querySelector('[data-fechar]').addEventListener('click', function () { m.fechar(); });
+      m.el.querySelector('#f-salvar').addEventListener('click', function () {
+        var body = lerForm(m.el, {});
+        var props = body.proprietarios || {};   // veio como {0:…, 1:…}; a API espera array
+        body.proprietarios = [props[0] || {}, props[1] || {}];
+        App.api('/contratos/partes/' + local, { method: 'PUT', body: body }).then(function () {
+          m.fechar();
+          App.toast('Partes salvas.', 'ok');
+          return carregar();
+        }).catch(function () {});
+      });
+    }
+
+    // ── formulário: contrato ────────────────────────────────────
+    function formContrato(c, casaId, duplicando) {
+      var novo = !c || !c.id;
+      var local = c ? c.local : S.local;
+      var padrao = S.dados.padroes[local];
+      var casa = null;
+      var d;
+      if (c) {
+        d = JSON.parse(JSON.stringify(c.dados || {}));
+        casa = S.dados.casas.filter(function (x) { return x.id === c.casa_id; })[0] || null;
+      } else {
+        casa = S.dados.casas.filter(function (x) { return x.id === casaId; })[0] || null;
+        d = {
+          imovel: casa ? 'Casa ' + casa.numero : '',
+          inquilino: { nome: casa ? casa.inquilino : '', telefone: casa ? casa.telefone : '' },
+          valor_aluguel: casa && casa.aluguel > 1 ? casa.aluguel : '',
+          dia_vencimento: casa ? casa.dia_vencimento_aluguel : 10,
+          inicio: casa && casa.inquilino_desde ? casa.inquilino_desde + '-01' : '',
+          prazo_meses: local === 'diadema' ? 12 : 30,
+          garantia: 'nenhuma', animais: 'proibido', anexar_regras: true,
+          data_assinatura: App.hoje()
+        };
+      }
+      var diadema = local === 'diadema';
+
+      var html = '<div class="form-grid">' +
+        secao('Imóvel') +
+        campo(d, 'imovel', 'Identificação', { ph: diadema ? 'Casa 3' : 'Casa' }) +
+        campo(d, 'imovel_complemento', 'Complemento (opcional)', { ph: 'fundos, 2 cômodos, banheiro…' }) +
+        secao('Inquilino') +
+        pessoaCampos(d, 'inquilino', { contato: true, endereco: false }) +
+        campo(d, 'ocupantes', 'Outros moradores (nomes)', { full: true, area: 2, hint: 'Vazio = "e sua família".' }) +
+        secao('Valor e prazo') +
+        campo(d, 'valor_aluguel', 'Aluguel mensal (R$)', { tipo: 'number' }) +
+        campo(d, 'dia_vencimento', 'Dia do vencimento', { tipo: 'number' }) +
+        campo(d, 'inicio', 'Início', { tipo: 'date' }) +
+        campo(d, 'prazo_meses', 'Prazo (meses)', { tipo: 'number', hint: 'Com 30 meses ou mais você pode pedir o imóvel no fim do prazo sem justificar (art. 46).' }) +
+        campo(d, 'reajuste_indice', 'Reajuste anual', { opcoes: ['IGP-M', 'IPCA', 'INPC'] }) +
+        campo(d, 'multa_atraso_pct', 'Multa por atraso (%)', { tipo: 'number', padrao: 10 }) +
+        campo(d, 'juros_mes_pct', 'Juros por mês (%)', { tipo: 'number', padrao: 1 }) +
+        campo(d, 'multa_rescisao_alugueis', 'Multa por sair antes (nº de aluguéis)', { tipo: 'number', padrao: 3, hint: 'Proporcional ao tempo que falta.' }) +
+        secao('Garantia') +
+        campo(d, 'garantia', 'Tipo', { opcoes: [['nenhuma', 'Sem garantia'], ['caucao', 'Caução (depósito)'], ['fiador', 'Fiador']] }) +
+        campo(d, 'caucao_valor', 'Valor da caução (R$)', { tipo: 'number', grupo: 'caucao', hint: 'Máximo de 3 aluguéis.' }) +
+        campo(d, 'fiador', 'Qualificação do fiador', { full: true, area: 2, grupo: 'fiador', ph: 'Nome, nacionalidade, estado civil, profissão, RG, CPF e endereço' }) +
+        secao('Regras da casa') +
+        campo(d, 'encargos', 'Contas que o inquilino paga', { full: true, area: 3, hint: 'Vazio = texto padrão: ' + padrao.encargos + '.' }) +
+        campo(d, 'animais', 'Animais', { opcoes: [['proibido', 'Proibidos'], ['autorizado', 'Autorizado (descrever)']] }) +
+        campo(d, 'animais_desc', 'Qual animal', { grupo: 'animal', ph: '1 cachorro porte pequeno' }) +
+        (diadema
+          ? '<div class="field full"><label class="check"><input type="checkbox" data-k="anexar_regras"' +
+              (d.anexar_regras !== false ? ' checked' : '') + '> Anexar as Regras do quintal (Anexo I)</label></div>'
+          : '') +
+        campo(d, 'vistoria', 'Estado do imóvel na entrega (vistoria)', { full: true, area: 3, ph: 'Pintura nova, piso cerâmico sem trincas, 2 chaves…' }) +
+        campo(d, 'clausulas_extras', 'Condições especiais (opcional)', { full: true, area: 3, hint: 'Cada linha vira um parágrafo de uma cláusula extra.' }) +
+        secao('Assinatura') +
+        campo(d, 'data_assinatura', 'Data', { tipo: 'date' }) +
+        campo(d, 'cidade_assinatura', 'Cidade', { ph: diadema ? 'Diadema/SP' : 'Porto Seguro/BA' }) +
+        campo(d, 'testemunha1.nome', 'Testemunha 1 — nome') + campo(d, 'testemunha1.cpf', 'Testemunha 1 — CPF') +
+        campo(d, 'testemunha2.nome', 'Testemunha 2 — nome') + campo(d, 'testemunha2.cpf', 'Testemunha 2 — CPF') +
+        (novo ? '' : secao('Situação') + '<div class="field"><select class="select" id="f-status">' +
+          ['rascunho', 'assinado', 'encerrado'].map(function (s) {
+            return '<option value="' + s + '"' + (c.status === s ? ' selected' : '') + '>' + STATUS[s].txt + '</option>';
+          }).join('') + '</select></div>') +
+      '</div>';
+
+      var titulo = (duplicando ? 'Renovação — ' : novo ? 'Novo contrato — ' : 'Contrato — ') +
+        (casa ? 'Casa ' + casa.numero : NOMES[local]);
+      var foot = '<button class="btn btn-ghost" type="button" data-fechar>Cancelar</button>' +
+                 '<button class="btn btn-outline" type="button" id="f-gerar">Salvar e gerar</button>' +
+                 '<button class="btn btn-primary" type="button" id="f-salvar">Salvar</button>';
+      var m = App.modal({ titulo: titulo, html: html, foot: foot, classe: 'modal-largo' });
+      function q(sel) { return m.el.querySelector(sel); }
+
+      function mostrarGrupos() {
+        var g = q('[data-k="garantia"]').value, a = q('[data-k="animais"]').value;
+        App.qsa('[data-grupo]', m.el).forEach(function (el) {
+          var gr = el.getAttribute('data-grupo');
+          var esconde = gr === 'animal' ? a !== 'autorizado' : gr !== g;
+          el.style.display = esconde ? 'none' : '';   // .field tem display próprio; [hidden] não basta
+        });
+      }
+      q('[data-k="garantia"]').addEventListener('change', mostrarGrupos);
+      q('[data-k="animais"]').addEventListener('change', mostrarGrupos);
+      mostrarGrupos();
+
+      q('[data-fechar]').addEventListener('click', function () { m.fechar(); });
+
+      function salvar(gerar) {
+        var dados = lerForm(m.el, d);
+        if (!dados.inquilino || !String(dados.inquilino.nome || '').trim()) {
+          App.toast('Informe o nome do inquilino.', 'err'); return;
+        }
+        // abre a aba já no clique (bloqueador de pop-up) e aponta depois de salvar
+        var janela = gerar ? window.open('', '_blank') : null;
+        var req = novo
+          ? App.api('/contratos', { method: 'POST', body: { local: local, casa_id: c ? c.casa_id : casaId, dados: dados } })
+          : App.api('/contratos/' + c.id, { method: 'PUT', body: { dados: dados, status: q('#f-status').value } });
+        req.then(function (r) {
+          var id = novo ? r.id : c.id;
+          m.fechar();
+          App.toast('Contrato salvo.', 'ok');
+          if (janela) janela.location.href = '/contratos/' + id + '/documento';
+          return carregar();
+        }).catch(function () { if (janela) janela.close(); });
+      }
+      q('#f-salvar').addEventListener('click', function () { salvar(false); });
+      q('#f-gerar').addEventListener('click', function () { salvar(true); });
+    }
+
+    render();
+    carregar();
+  })();
+  </script>
+</body>
+</html>

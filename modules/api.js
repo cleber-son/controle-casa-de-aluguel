@@ -1,8 +1,11 @@
 // modules/api.js — router da API (/api). JSON, sessão obrigatória.
 // Convenção de erro: HTTP 4xx/5xx + { ok:false, erro:'mensagem em português' }.
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const db = require('./db');
+const contratoDoc = require('./contrato');
 const calc = require('./calculo');
 const msgs = require('./mensagens');
 const { requireAuth } = require('./auth');
@@ -783,8 +786,212 @@ router.delete('/acessos/:id', h((req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Contratos ────────────────────────────────────────────────────
+// Dois locais: 'diadema' (casas do quintal, assinadas por procuração) e
+// 'porto_seguro' (imóvel próprio). O texto do contrato sai de modules/contrato.js;
+// o contrato assinado (PDF/foto) fica em DB_DIR/contratos, fora do git.
+
+const DIR_CONTRATOS = path.join(db.DB_DIR, 'contratos');
+const MIME_CONTRATO = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const STATUS_CONTRATO = ['rascunho', 'assinado', 'encerrado'];
+
+function localOuErro(v) {
+  if (!contratoDoc.LOCAIS[v]) throw new Error('Local inválido (diadema ou porto_seguro)');
+  return v;
+}
+
+function texto(v, max = 300) {
+  return String(v == null ? '' : v).trim().slice(0, max);
+}
+
+function pessoa(p) {
+  p = p || {};
+  return {
+    nome: texto(p.nome, 120), nacionalidade: texto(p.nacionalidade, 40),
+    estado_civil: texto(p.estado_civil, 40), profissao: texto(p.profissao, 60),
+    rg: texto(p.rg, 30), cpf: texto(p.cpf, 20), endereco: texto(p.endereco, 250),
+    telefone: texto(p.telefone, 30), email: texto(p.email, 120),
+  };
+}
+
+function camposPartes(b) {
+  const props = Array.isArray(b.proprietarios) ? b.proprietarios.slice(0, 2) : [];
+  return {
+    proprietarios: props.map(pessoa),
+    procurador: pessoa(b.procurador),
+    procuracao: texto(b.procuracao, 400),
+    endereco_imovel: texto(b.endereco_imovel, 300),
+    pagamento: texto(b.pagamento, 200),
+    foro: texto(b.foro, 60),
+  };
+}
+
+function numOuNull(v, campo, { min = 0, max = Infinity, inteiro = false } = {}) {
+  if (v === '' || v == null) return null;
+  const n = toNum(v);
+  if (!Number.isFinite(n) || n < min || n > max || (inteiro && !Number.isInteger(n))) {
+    throw new Error(`Valor inválido em ${campo}`);
+  }
+  return n;
+}
+
+function camposContrato(b) {
+  const garantia = ['nenhuma', 'caucao', 'fiador'].includes(b.garantia) ? b.garantia : 'nenhuma';
+  return {
+    imovel: texto(b.imovel, 80),
+    imovel_complemento: texto(b.imovel_complemento, 200),
+    inquilino: pessoa(b.inquilino),
+    ocupantes: texto(b.ocupantes, 400),
+    valor_aluguel: numOuNull(b.valor_aluguel, 'valor do aluguel'),
+    dia_vencimento: numOuNull(b.dia_vencimento, 'dia de vencimento', { min: 1, max: 31, inteiro: true }),
+    inicio: dataISOouNull(b.inicio, 'início'),
+    prazo_meses: numOuNull(b.prazo_meses, 'prazo', { min: 1, max: 120, inteiro: true }),
+    reajuste_indice: contratoDoc.INDICES.includes(b.reajuste_indice) ? b.reajuste_indice : 'IGP-M',
+    multa_atraso_pct: numOuNull(b.multa_atraso_pct, 'multa por atraso', { max: 20 }) ?? 10,
+    juros_mes_pct: numOuNull(b.juros_mes_pct, 'juros', { max: 10 }) ?? 1,
+    multa_rescisao_alugueis: numOuNull(b.multa_rescisao_alugueis, 'multa de rescisão', { max: 12, inteiro: true }) ?? 3,
+    garantia,
+    caucao_valor: garantia === 'caucao' ? numOuNull(b.caucao_valor, 'caução') : null,
+    fiador: garantia === 'fiador' ? texto(b.fiador, 600) : '',
+    encargos: texto(b.encargos, 800),
+    animais: b.animais === 'autorizado' ? 'autorizado' : 'proibido',
+    animais_desc: b.animais === 'autorizado' ? texto(b.animais_desc, 200) : '',
+    vistoria: texto(b.vistoria, 1500),
+    anexar_regras: b.anexar_regras !== false,
+    clausulas_extras: texto(b.clausulas_extras, 4000),
+    data_assinatura: dataISOouNull(b.data_assinatura, 'data de assinatura'),
+    cidade_assinatura: texto(b.cidade_assinatura, 60),
+    testemunha1: { nome: texto(b.testemunha1 && b.testemunha1.nome, 120), cpf: texto(b.testemunha1 && b.testemunha1.cpf, 20) },
+    testemunha2: { nome: texto(b.testemunha2 && b.testemunha2.nome, 120), cpf: texto(b.testemunha2 && b.testemunha2.cpf, 20) },
+  };
+}
+
+function lerPartes(local) {
+  const row = db.prepare('SELECT dados FROM contratos_partes WHERE local = ?').get(local);
+  return row ? JSON.parse(row.dados) : camposPartes({});
+}
+
+function contratoPorId(id) {
+  const c = db.prepare('SELECT * FROM contratos WHERE id = ?').get(toInt(id));
+  if (!c) { const e = new Error('Contrato não encontrado'); e.statusCode = 404; throw e; }
+  return { ...c, dados: JSON.parse(c.dados) };
+}
+
+function semArquivoPath(c) {
+  const { arquivo_path, ...resto } = c;   // caminho no disco não sai pela API
+  return { ...resto, tem_arquivo: !!arquivo_path };
+}
+
+function apagarArquivo(c) {
+  if (!c.arquivo_path) return;
+  try { fs.unlinkSync(path.join(DIR_CONTRATOS, path.basename(c.arquivo_path))); } catch { /* já não existia */ }
+}
+
+// CPF/RG dos inquilinos: nada de cache de navegador/proxy
+router.use('/contratos', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+// tudo de uma vez: partes dos dois locais, casas e contratos (sem dados sensíveis de disco)
+router.get('/contratos', h((req, res) => {
+  const contratos = db.prepare('SELECT * FROM contratos ORDER BY COALESCE(json_extract(dados, \'$.inicio\'), criado_em) DESC, id DESC')
+    .all().map((c) => semArquivoPath({ ...c, dados: JSON.parse(c.dados) }));
+  res.json({
+    partes: { diadema: lerPartes('diadema'), porto_seguro: lerPartes('porto_seguro') },
+    padroes: Object.fromEntries(Object.entries(contratoDoc.LOCAIS).map(([k, l]) => [k, { foro: l.foro, encargos: l.encargos }])),
+    casas: db.prepare('SELECT id, numero, inquilino, telefone, aluguel, moradores, ativa, inquilino_desde, dia_vencimento_aluguel, observacoes FROM casas ORDER BY numero').all(),
+    contratos,
+  });
+}));
+
+router.put('/contratos/partes/:local', h((req, res) => {
+  const local = localOuErro(req.params.local);
+  const dados = JSON.stringify(camposPartes(req.body || {}));
+  db.prepare(`INSERT INTO contratos_partes (local, dados) VALUES (?, ?)
+    ON CONFLICT(local) DO UPDATE SET dados = excluded.dados`).run(local, dados);
+  res.json({ ok: true });
+}));
+
+router.post('/contratos', h((req, res) => {
+  const b = req.body || {};
+  const local = localOuErro(b.local);
+  let casaId = null;
+  if (local === 'diadema') {
+    casaId = toInt(b.casa_id);
+    if (!db.prepare('SELECT id FROM casas WHERE id = ?').get(casaId)) throw new Error('Escolha a casa do contrato');
+  }
+  const info = db.prepare('INSERT INTO contratos (local, casa_id, dados) VALUES (?, ?, ?)')
+    .run(local, casaId, JSON.stringify(camposContrato(b.dados || {})));
+  res.json({ ok: true, id: info.lastInsertRowid });
+}));
+
+router.put('/contratos/:id', h((req, res) => {
+  const c = contratoPorId(req.params.id);
+  const b = req.body || {};
+  const status = b.status === undefined ? c.status : b.status;
+  if (!STATUS_CONTRATO.includes(status)) throw new Error('Situação inválida');
+  const dados = b.dados === undefined ? c.dados : camposContrato(b.dados);
+  db.prepare(`UPDATE contratos SET status = ?, dados = ?, atualizado_em = datetime('now') WHERE id = ?`)
+    .run(status, JSON.stringify(dados), c.id);
+  res.json({ ok: true });
+}));
+
+router.delete('/contratos/:id', h((req, res) => {
+  const c = contratoPorId(req.params.id);
+  apagarArquivo(c);
+  db.prepare('DELETE FROM contratos WHERE id = ?').run(c.id);
+  res.json({ ok: true });
+}));
+
+// contrato assinado: corpo cru (PDF ou foto), nome em X-Nome-Arquivo
+router.put('/contratos/:id/arquivo',
+  express.raw({ type: Object.keys(MIME_CONTRATO), limit: '15mb' }),
+  h((req, res) => {
+    const c = contratoPorId(req.params.id);
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim();
+    const ext = MIME_CONTRATO[mime];
+    if (!ext) throw new Error('Envie um PDF ou uma foto (JPG, PNG, WEBP)');
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new Error('Arquivo vazio');
+    let nome = 'contrato.' + ext;
+    try { nome = decodeURIComponent(String(req.headers['x-nome-arquivo'] || '')).slice(0, 120) || nome; } catch { /* mantém */ }
+    if (!fs.existsSync(DIR_CONTRATOS)) fs.mkdirSync(DIR_CONTRATOS, { recursive: true });
+    apagarArquivo(c);
+    const arquivo = `contrato-${c.id}-${Date.now()}.${ext}`;
+    fs.writeFileSync(path.join(DIR_CONTRATOS, arquivo), req.body);
+    db.prepare(`UPDATE contratos SET arquivo_nome = ?, arquivo_mime = ?, arquivo_path = ?,
+      atualizado_em = datetime('now') WHERE id = ?`).run(nome, mime, arquivo, c.id);
+    res.json({ ok: true });
+  }));
+
+router.get('/contratos/:id/arquivo', h((req, res) => {
+  const c = contratoPorId(req.params.id);
+  if (!c.arquivo_path) return falha(res, 404, 'Este contrato não tem arquivo anexado');
+  res.set('Cache-Control', 'no-store');
+  res.type(c.arquivo_mime);
+  res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(c.arquivo_nome || 'contrato')}`);
+  res.sendFile(path.join(DIR_CONTRATOS, path.basename(c.arquivo_path)));
+}));
+
+router.delete('/contratos/:id/arquivo', h((req, res) => {
+  const c = contratoPorId(req.params.id);
+  apagarArquivo(c);
+  db.prepare(`UPDATE contratos SET arquivo_nome = NULL, arquivo_mime = NULL, arquivo_path = NULL,
+    atualizado_em = datetime('now') WHERE id = ?`).run(c.id);
+  res.json({ ok: true });
+}));
+
+// HTML do contrato gerado (usado pela página /contratos/:id/documento)
+function documentoContrato(id) {
+  const c = contratoPorId(id);
+  const casa = c.casa_id ? db.prepare('SELECT * FROM casas WHERE id = ?').get(c.casa_id) : null;
+  const regras = db.prepare('SELECT titulo, texto FROM regras WHERE ativa = 1 ORDER BY ordem, id').all();
+  const corpo = contratoDoc.gerar({ local: c.local, partes: lerPartes(c.local), contrato: c, casa, regras });
+  const quem = c.dados.inquilino && c.dados.inquilino.nome ? ` — ${c.dados.inquilino.nome}` : '';
+  const onde = casa ? `Casa ${casa.numero}` : (c.dados.imovel || contratoDoc.LOCAIS[c.local].nome);
+  return contratoDoc.pagina({ titulo: `Contrato ${onde}${quem}`, corpo });
+}
+
 // ── fallback ─────────────────────────────────────────────────────
 
 router.use((req, res) => falha(res, 404, 'Rota não encontrada'));
 
 module.exports = router;
+module.exports.documentoContrato = documentoContrato;

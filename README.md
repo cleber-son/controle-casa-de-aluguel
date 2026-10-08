@@ -18,6 +18,7 @@ Versão 3.0 — reescrita completa (visual e lógica).
 | **Histórico** (`/historico`) | Abas mês a mês, com o que foi cobrado, recebido e o que ficou em aberto, além da evolução por casa. |
 | **Repasse** (`/repasse`) | Split 50/50 do aluguel recebido entre pai e mãe, com descontos individuais. |
 | **Dados** (`/dados`) | Logins das contas (Sabesp, Enel por relógio) com botão de copiar. Ficam só no banco, nunca no git. |
+| **Contratos** (`/contratos`) | Duas abas — **Diadema** (as casas do quintal, contrato assinado pelo procurador) e **Porto Seguro** (imóvel próprio). Guarda os dados das partes e de cada inquilino, gera o contrato de locação pronto para imprimir/salvar em PDF e guarda a via assinada (PDF ou foto). |
 | **Regras** (`/regras`) | As 15 regras de convivência do quintal — editáveis, prontas para imprimir ou mandar no grupo. |
 
 ---
@@ -104,6 +105,7 @@ modules/
   db.js               schema, migrations e seeds (7 casas + 15 regras)
   calculo.js          rateio de água e luz, pagamento, payload do mês
   mensagens.js        textos de WhatsApp (cobrança, lembrete, recibo, regras)
+  contrato.js         texto do contrato de locação (Lei 8.245/91) em HTML para imprimir
   api.js              rotas /api
   auth.js             senha + middleware de sessão
   logger.js           log com timestamp
@@ -114,6 +116,7 @@ public/
 data/
   quintal.db          banco (volume persistente)
   backup/             backup do banco antigo (v2, aluguel.db)
+  contratos/          vias assinadas anexadas na aba Contratos (fora do git)
 ```
 
 ---

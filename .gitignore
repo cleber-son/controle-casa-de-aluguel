@@ -8,3 +8,4 @@ data/*.db-shm
 data/backup/
 .DS_Store
 *.log
+data/contratos/
