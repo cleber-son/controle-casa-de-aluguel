@@ -842,6 +842,8 @@ function camposContrato(b) {
     imovel_complemento: texto(b.imovel_complemento, 200),
     inquilino: pessoa(b.inquilino),
     ocupantes: texto(b.ocupantes, 400),
+    moradores_qtd: numOuNull(b.moradores_qtd, 'número de moradores', { min: 1, max: 20, inteiro: true }),
+    visita_dias: numOuNull(b.visita_dias, 'dias de visita', { min: 1, max: 90, inteiro: true }) ?? 14,
     valor_aluguel: numOuNull(b.valor_aluguel, 'valor do aluguel'),
     dia_vencimento: numOuNull(b.dia_vencimento, 'dia de vencimento', { min: 1, max: 31, inteiro: true }),
     inicio: dataISOouNull(b.inicio, 'início'),

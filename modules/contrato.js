@@ -127,6 +127,12 @@ function numExtenso(n) {
   return inteiroExtenso(Math.max(0, Math.round(Number(n) || 0)));
 }
 
+// "1 (uma) pessoa", "2 (duas) pessoas", "21 (vinte e uma) pessoas"
+function pessoas(q) {
+  const ext = numExtenso(q).replace(/\bum$/, 'uma').replace(/\bdois$/, 'duas');
+  return `${q} (${ext}) ${q === 1 ? 'pessoa' : 'pessoas'}`;
+}
+
 // ── qualificação das partes ──────────────────────────────────────
 
 function preenchida(p) {
@@ -204,17 +210,30 @@ function gerar({ local, partes, contrato, casa, regras }) {
   const imovelDesc = String(d.imovel || '').trim() || (casa ? `Casa ${casa.numero}` : '');
   const anexarRegras = local === 'diadema' && d.anexar_regras !== false && regras && regras.length;
 
+  const visitaDias = Number(d.visita_dias) || 14;
+  const qtdMoradores = Number(d.moradores_qtd) || 0;
+  const rateio = local === 'diadema';
+
   let n = 0;
   const cl = (titulo, corpo) => `<h3>CLÁUSULA ${++n}ª — ${titulo}</h3>${corpo}`;
   const p = (t) => `<p>${t}</p>`;
+  // parágrafos numerados dentro da cláusula: "Parágrafo 1º —"
+  const pars = (lista) => lista.map((t, i) => (i === 0 ? p(t) : p(`<strong>§ ${i}º</strong> ${t}`))).join('');
 
   const ocupantes = String(d.ocupantes || '').trim();
   const animais = d.animais === 'autorizado'
-    ? 'Fica autorizada a permanência do(s) seguinte(s) animal(is) de estimação: ' +
-      `${v(d.animais_desc)}. O LOCATÁRIO responde por qualquer dano, sujeira ou incômodo causado ` +
-      'por eles, e a autorização pode ser revogada se as regras de convivência forem descumpridas.'
-    : 'É proibido manter animais de qualquer espécie no imóvel sem autorização prévia e por escrito ' +
-      'do LOCADOR.';
+    ? [`Como exceção expressa, fica autorizada somente a permanência de: ${v(d.animais_desc)}. Nenhum outro ` +
+        'animal poderá ser mantido no imóvel, nem substituir o autorizado.',
+      'O LOCATÁRIO responde integralmente por qualquer dano, sujeira, odor, barulho ou incômodo causado pelo ' +
+        'animal, que deverá ficar sempre dentro da casa ou na coleira, e a autorização poderá ser revogada ' +
+        'pelo LOCADOR a qualquer tempo se as regras de convivência forem descumpridas, devendo o animal ser ' +
+        'retirado em até 7 (sete) dias após o aviso.']
+    : ['É <strong>expressamente proibido</strong> criar, manter, hospedar ou abrigar animais de qualquer espécie ' +
+        'ou porte no imóvel e nas áreas comuns, ainda que temporariamente, "por alguns dias" ou pertencentes a ' +
+        'visitantes.',
+      'Constatada a presença de animal, o LOCATÁRIO será avisado e deverá retirá-lo em até 48 (quarenta e oito) ' +
+        'horas. Não retirado no prazo, ficará caracterizada infração contratual grave, sujeita à multa e à ' +
+        'rescisão previstas neste contrato, além do pagamento de qualquer dano, limpeza ou dedetização necessária.'];
 
   const corpo = [
     `<h1>CONTRATO DE LOCAÇÃO RESIDENCIAL</h1>`,
@@ -223,82 +242,157 @@ function gerar({ local, partes, contrato, casa, regras }) {
       `${inq.telefone ? `, telefone ${esc(inq.telefone)}` : ''}` +
       `${inq.email ? `, e-mail ${esc(inq.email)}` : ''}.</p>`,
     p('As partes acima identificadas têm entre si, justo e contratado, a locação do imóvel descrito ' +
-      'abaixo, que se regerá pela Lei nº 8.245/91 e pelas cláusulas seguintes.'),
+      'abaixo, que se regerá pela Lei nº 8.245/91 e pelas cláusulas seguintes, que as partes leram e aceitam.'),
 
-    cl('DO OBJETO', [
-      p(`O LOCADOR dá em locação ao LOCATÁRIO o imóvel residencial <strong>${v(imovelDesc)}</strong>, ` +
-        `situado em ${v(partes.endereco_imovel)}${d.imovel_complemento ? `, ${esc(d.imovel_complemento)}` : ''}.`),
-      p('O imóvel destina-se exclusivamente à moradia do LOCATÁRIO' +
-        (ocupantes ? ` e das seguintes pessoas: ${esc(ocupantes)}` : ' e de sua família') +
-        '. É vedado sublocar, ceder, emprestar ou transferir o imóvel, no todo ou em parte, bem como ' +
-        'mudar a sua destinação, sem consentimento prévio e por escrito do LOCADOR.'),
-    ].join('')),
+    cl('DO OBJETO E DOS MORADORES', pars([
+      `O LOCADOR dá em locação ao LOCATÁRIO o imóvel residencial <strong>${v(imovelDesc)}</strong>, ` +
+        `situado em ${v(partes.endereco_imovel)}${d.imovel_complemento ? `, ${esc(d.imovel_complemento)}` : ''}.`,
+      `O imóvel será ocupado por <strong>${qtdMoradores ? pessoas(qtdMoradores) : `${LINHA} pessoa(s)`}` +
+        `</strong>: o LOCATÁRIO${ocupantes ? ` e ${esc(ocupantes)}` : ''}. A entrada de qualquer novo ` +
+        'morador depende de autorização prévia e por escrito do LOCADOR.',
+      'É vedado sublocar, ceder, emprestar ou transferir o imóvel, no todo ou em parte, a qualquer título, ' +
+        'inclusive por aplicativos de hospedagem, sem consentimento prévio e por escrito do LOCADOR.',
+    ])),
 
-    cl('DO PRAZO', [
-      p(`A locação tem prazo de <strong>${prazo ? `${prazo} (${numExtenso(prazo)}) meses` : LINHA}</strong>, ` +
+    cl('DA FINALIDADE — USO EXCLUSIVAMENTE RESIDENCIAL', pars([
+      'O imóvel destina-se <strong>exclusivamente à moradia</strong> do LOCATÁRIO e dos moradores declarados, ' +
+        'sendo <strong>proibido qualquer uso comercial</strong>, industrial ou profissional.',
+      'Ficam proibidos, entre outros: comércio ou venda de produtos no local; bar, lanchonete, oficina, salão, ' +
+        'ateliê ou qualquer atendimento ao público; depósito ou estoque de mercadorias; uso do endereço do ' +
+        'imóvel para registro de empresa, CNPJ ou MEI; e hospedagem remunerada de terceiros.',
+      'Também é proibido guardar no imóvel materiais inflamáveis, explosivos, tóxicos ou ilícitos (salvo o ' +
+        'botijão de gás de uso doméstico) e praticar no local qualquer atividade ilegal.',
+      'O descumprimento desta cláusula é infração grave e autoriza a rescisão imediata do contrato, com a ' +
+        'aplicação da multa prevista na cláusula de infrações.',
+    ])),
+
+    cl('DO PRAZO', pars([
+      `A locação tem prazo de <strong>${prazo ? `${prazo} (${numExtenso(prazo)}) meses` : LINHA}</strong>, ` +
         `com início em <strong>${dataBR(d.inicio)}</strong> e término em <strong>${fim ? dataBR(fim) : LINHA}</strong>, ` +
-        'data em que o LOCATÁRIO deverá devolver o imóvel livre e desocupado, salvo renovação por escrito.'),
-      p('Findo o prazo sem oposição do LOCADOR e permanecendo o LOCATÁRIO no imóvel, a locação ' +
-        'prorroga-se por prazo indeterminado, nas mesmas condições, podendo qualquer das partes ' +
-        'encerrá-la mediante aviso por escrito com 30 (trinta) dias de antecedência.'),
-    ].join('')),
+        'data em que o LOCATÁRIO deverá devolver o imóvel livre e desocupado, independentemente de aviso, ' +
+        'salvo renovação por escrito.',
+      'Findo o prazo e permanecendo o LOCATÁRIO no imóvel sem oposição do LOCADOR, a locação prorroga-se por ' +
+        'prazo indeterminado, nas mesmas condições, podendo ser encerrada pelo LOCADOR nas hipóteses da lei ' +
+        'e pelo LOCATÁRIO mediante aviso por escrito com 30 (trinta) dias de antecedência.',
+    ])),
 
-    cl('DO ALUGUEL', [
-      p(`O aluguel mensal é de <strong>${valor ? brl(valor) : LINHA}</strong>` +
+    cl('DO ALUGUEL E DO PAGAMENTO', pars([
+      `O aluguel mensal é de <strong>${valor ? brl(valor) : LINHA}</strong>` +
         `${valor ? ` (${reaisExtenso(valor)})` : ''}, a ser pago até o dia ` +
         `<strong>${dia ? `${dia} (${numExtenso(dia)})` : LINHA}</strong> de cada mês` +
-        `${partes.pagamento ? `, por meio de ${esc(partes.pagamento)}` : ', na forma combinada com o LOCADOR'}. ` +
-        'O comprovante de pagamento vale como recibo.'),
-      p(`O aluguel será reajustado a cada 12 (doze) meses pela variação acumulada do <strong>${indice}</strong> ` +
+        `${partes.pagamento ? `, por meio de ${esc(partes.pagamento)}` : ', na forma indicada pelo LOCADOR'}. ` +
+        'O comprovante de transferência vale como recibo. Pagamento feito de outra forma ou a outra pessoa ' +
+        'não terá validade.',
+      `O aluguel será reajustado a cada 12 (doze) meses pela variação acumulada do <strong>${indice}</strong> ` +
         'ou, na sua falta, pelo índice oficial que o substituir. Se a variação for negativa, o valor ' +
-        'permanece o mesmo.'),
-      p(`O atraso no pagamento sujeita o LOCATÁRIO a multa de ${multa}% (${numExtenso(multa)} por cento) ` +
-        `sobre o valor devido, juros de ${juros}% ao mês e correção monetária, sem prejuízo da ação de ` +
-        'despejo por falta de pagamento.'),
-    ].join('')),
+        'permanece o mesmo.',
+      'O LOCATÁRIO não poderá descontar do aluguel nenhuma despesa, conserto ou compra, salvo autorização ' +
+        'prévia e por escrito do LOCADOR. O pagamento parcial não quita o mês e pode ser recusado.',
+    ])),
 
-    cl('DOS ENCARGOS', p(`Além do aluguel, cabem ao LOCATÁRIO, durante toda a locação, ${esc(encargos)}. ` +
-      'O LOCATÁRIO deverá apresentar os comprovantes de pagamento quando solicitado.')),
+    cl('DO ATRASO NO PAGAMENTO', pars([
+      'O não pagamento do aluguel ou dos encargos até o vencimento sujeita o LOCATÁRIO, automaticamente e ' +
+        `independentemente de aviso, a: (a) <strong>multa de ${multa}% (${numExtenso(multa)} por cento)</strong> ` +
+        `sobre o valor devido; (b) <strong>juros de ${juros}% (${numExtenso(juros)} por cento) ao mês</strong>, ` +
+        'calculados dia a dia; e (c) correção monetária pelo índice de reajuste deste contrato.',
+      'Se a cobrança for feita por advogado, o LOCATÁRIO pagará também os honorários advocatícios de 10% ' +
+        '(dez por cento) sobre o débito na cobrança extrajudicial e de 20% (vinte por cento) na judicial, ' +
+        'além das custas e despesas do processo.',
+      'O atraso de qualquer aluguel ou encargo por mais de 30 (trinta) dias, ou o atraso repetido por 3 ' +
+        '(três) meses, seguidos ou não, dentro de 12 (doze) meses, é infração grave e autoriza a rescisão do ' +
+        'contrato e a ação de despejo por falta de pagamento, além da cobrança de todo o débito.',
+      'O débito vencido e não pago poderá ser levado a protesto e a registro nos órgãos de proteção ao ' +
+        'crédito (SPC/Serasa), após comunicação ao LOCATÁRIO.',
+      'O recebimento de um aluguel com atraso, ou sem os acréscimos, por mera tolerância do LOCADOR, não ' +
+        'altera o vencimento nem dispensa a cobrança da multa e dos juros em outros meses.',
+    ])),
+
+    cl('DOS ENCARGOS E CONTAS DE CONSUMO', pars([
+      `Além do aluguel, cabem ao LOCATÁRIO, durante toda a locação, ${esc(encargos)}.`,
+      'As contas e encargos em atraso sofrem os mesmos acréscimos do aluguel (multa, juros, correção e ' +
+        'honorários). Se o LOCADOR pagar alguma conta que caberia ao LOCATÁRIO, o valor será reembolsado no ' +
+        'vencimento do aluguel seguinte, com os mesmos acréscimos.',
+      'O LOCATÁRIO deverá apresentar os comprovantes de pagamento sempre que solicitado e entregar o imóvel ' +
+        'com todas as contas quitadas até a data da entrega das chaves.',
+    ])),
+
+    cl('DAS VISITAS', pars([
+      'Visitas são permitidas, sob a inteira responsabilidade do LOCATÁRIO, que responde pelo comportamento ' +
+        'delas e por qualquer dano que causarem ao imóvel, às áreas comuns ou aos vizinhos.',
+      `A pessoa que permanecer no imóvel por mais de <strong>${visitaDias} (${numExtenso(visitaDias)}) dias</strong>, ` +
+        'seguidos ou somados dentro do mesmo mês, deixa de ser considerada visita e passa a ser considerada ' +
+        'morador para todos os efeitos deste contrato' +
+        (rateio
+          ? ', <strong>entrando na divisão das contas rateadas por morador, como a de água</strong>, a ' +
+            'partir do mês em que o prazo for ultrapassado'
+          : '') + '.',
+      'O LOCATÁRIO é obrigado a informar ao LOCADOR a permanência de visita por mais tempo que o previsto ' +
+        'acima. A permanência não informada, além de contar como morador desde o primeiro dia, é infração ' +
+        'contratual. A visita que se tornar morador continua dependendo da autorização prevista na cláusula 1ª.',
+    ])),
+
+    cl('DOS ANIMAIS', pars(animais)),
 
     cl('DA GARANTIA', p(clausulaGarantia(d))),
 
-    cl('DA CONSERVAÇÃO DO IMÓVEL', [
-      p('O LOCATÁRIO declara receber o imóvel em bom estado de conservação, limpeza e funcionamento' +
-        (d.vistoria ? `, conforme a seguinte descrição: ${esc(d.vistoria)}` : '') +
-        ', obrigando-se a devolvê-lo no mesmo estado, ressalvado o desgaste natural do uso normal.'),
-      p('Cabem ao LOCATÁRIO os pequenos reparos decorrentes do uso (torneiras, lâmpadas, tomadas, ' +
-        'fechaduras, vidros, entupimentos e similares) e a reparação de qualquer dano causado ao imóvel ' +
-        'por ele, seus familiares, visitantes ou animais. Os reparos estruturais e os vícios anteriores ' +
-        'à locação cabem ao LOCADOR, a quem o LOCATÁRIO deve comunicar de imediato qualquer problema.'),
-      p('Nenhuma obra, reforma ou benfeitoria poderá ser feita sem autorização prévia e por escrito do ' +
-        'LOCADOR. As benfeitorias feitas, mesmo autorizadas, incorporam-se ao imóvel sem direito a ' +
-        'indenização ou retenção, salvo acordo escrito em contrário.'),
-      p('O LOCADOR ou pessoa por ele indicada poderá vistoriar o imóvel, em dia e hora combinados ' +
-        'previamente com o LOCATÁRIO.'),
-    ].join('')),
+    cl('DA CONSERVAÇÃO E DAS OBRAS', pars([
+      'O LOCATÁRIO declara ter vistoriado e receber o imóvel em bom estado de conservação, limpeza e ' +
+        'funcionamento' + (d.vistoria ? `, conforme a seguinte descrição: ${esc(d.vistoria)}` : '') +
+        ', obrigando-se a devolvê-lo no mesmo estado, ressalvado o desgaste natural do uso normal.',
+      'Cabem ao LOCATÁRIO os pequenos reparos decorrentes do uso (torneiras, lâmpadas, tomadas, ' +
+        'fechaduras, vidros, entupimentos e similares) e a reparação de qualquer dano causado ao imóvel por ' +
+        'ele, seus moradores ou visitantes. Os reparos estruturais e os vícios anteriores à locação cabem ao ' +
+        'LOCADOR, a quem o LOCATÁRIO deve comunicar de imediato qualquer problema.',
+      'Nenhuma obra, reforma, pintura em cor diferente, furo em azulejo, troca de fechadura ou instalação ' +
+        'elétrica ou hidráulica poderá ser feita sem autorização prévia e por escrito do LOCADOR. As ' +
+        'benfeitorias feitas, ainda que autorizadas e mesmo as necessárias, incorporam-se ao imóvel sem direito ' +
+        'a indenização ou retenção (art. 35 da Lei 8.245/91).',
+      'É proibido puxar energia ou água de outra casa ou fazer ligação improvisada. O LOCADOR ou pessoa por ' +
+        'ele indicada poderá vistoriar o imóvel em dia e hora combinados com o LOCATÁRIO, ou a qualquer hora em ' +
+        'caso de emergência (vazamento, curto-circuito, risco à segurança).',
+    ])),
 
-    cl('DO USO E DA CONVIVÊNCIA', [
-      p('O LOCATÁRIO usará o imóvel de forma pacífica, respeitando o sossego, a segurança e a saúde ' +
-        'dos vizinhos, sendo responsável pelo comportamento de seus moradores e visitantes.' +
-        (anexarRegras
-          ? ' Por se tratar de casa situada em imóvel com outras casas e áreas comuns, o LOCATÁRIO ' +
-            'declara conhecer e se obriga a cumprir o Regulamento Interno do Quintal (Anexo I), que ' +
-            'faz parte deste contrato.'
-          : '')),
-      p(animais),
-    ].join('')),
+    cl('DO USO E DA CONVIVÊNCIA', p('O LOCATÁRIO usará o imóvel de forma pacífica, respeitando o sossego, ' +
+      'a segurança e a saúde dos vizinhos, sendo responsável pelo comportamento de seus moradores e visitantes.' +
+      (anexarRegras
+        ? ' Por se tratar de casa situada em imóvel com outras casas e áreas comuns, o LOCATÁRIO declara ' +
+          'conhecer e se obriga a cumprir o Regulamento Interno do Quintal (Anexo I), que faz parte deste ' +
+          'contrato. O descumprimento repetido do regulamento, após aviso, é infração contratual.'
+        : ''))),
 
-    cl('DA RESCISÃO', [
-      p('Se o LOCATÁRIO devolver o imóvel antes do fim do prazo, pagará multa equivalente a ' +
-        `${multaResc} (${numExtenso(multaResc)}) aluguéis vigentes, reduzida proporcionalmente ao tempo ` +
-        'de contrato já cumprido (art. 4º da Lei 8.245/91), e deverá avisar o LOCADOR por escrito com ' +
-        '30 (trinta) dias de antecedência.'),
-      p('O descumprimento de qualquer cláusula deste contrato dá à parte prejudicada o direito de ' +
-        'rescindi-lo, independentemente de aviso, e de exigir da outra parte a mesma multa acima, sem ' +
-        'prejuízo das perdas e danos e da cobrança dos valores em aberto.'),
-      p('Na saída, o LOCATÁRIO entregará as chaves mediante recibo, com o imóvel limpo, desocupado, ' +
-        'com as contas de consumo quitadas até a data da entrega e após vistoria do LOCADOR.'),
-    ].join('')),
+    cl('DAS INFRAÇÕES E DA RESCISÃO', pars([
+      'O descumprimento de qualquer cláusula deste contrato sujeita a parte infratora à multa de ' +
+        `<strong>${multaResc} (${numExtenso(multaResc)}) aluguéis vigentes</strong> e dá à outra parte o ` +
+        'direito de rescindi-lo, sem prejuízo da cobrança das perdas e danos e dos valores em aberto. A ' +
+        'multa é devida por inteiro, qualquer que seja o tempo decorrido do contrato.',
+      'São infrações graves, entre outras: atraso de pagamento nos termos da cláusula de atraso; uso ' +
+        'comercial do imóvel; sublocação ou cessão; animais sem autorização; morador não autorizado; obras ' +
+        'sem autorização; e prática de atividade ilegal no imóvel.',
+      'Se o LOCATÁRIO devolver o imóvel antes do fim do prazo, pagará a multa acima reduzida ' +
+        'proporcionalmente ao tempo de contrato que falta cumprir (art. 4º da Lei 8.245/91), e deverá avisar o ' +
+        'LOCADOR por escrito com 30 (trinta) dias de antecedência; sem o aviso, pagará também 1 (um) aluguel.',
+    ])),
+
+    cl('DA DEVOLUÇÃO DO IMÓVEL', pars([
+      'A devolução só se considera feita com a entrega das chaves ao LOCADOR mediante recibo escrito, após ' +
+        'vistoria de saída. Até essa data são devidos o aluguel e os encargos, proporcionais aos dias.',
+      'O imóvel deve ser devolvido limpo, desocupado, com as contas quitadas e no estado da vistoria de ' +
+        'entrada. Os danos encontrados serão cobrados pelo valor do orçamento do conserto, e o aluguel continua ' +
+        'correndo durante o tempo necessário para os reparos causados pelo LOCATÁRIO.',
+      'Objetos deixados no imóvel depois da entrega das chaves ou do abandono serão considerados ' +
+        'abandonados após 30 (trinta) dias, podendo o LOCADOR dar-lhes o destino que entender.',
+    ])),
+
+    cl('DAS DISPOSIÇÕES GERAIS', pars([
+      'Avisos e notificações entre as partes podem ser feitos por escrito, inclusive por WhatsApp ou e-mail ' +
+        'nos contatos informados neste contrato, valendo como recebidos na data do envio. O LOCATÁRIO deve ' +
+        'informar qualquer mudança de telefone ou e-mail.',
+      'A tolerância de qualquer das partes com o descumprimento de alguma cláusula não significa renúncia, ' +
+        'perdão ou mudança do contrato, podendo a cláusula ser exigida a qualquer tempo.',
+      'O LOCATÁRIO responde por todas as obrigações deste contrato, inclusive pelos atos dos demais ' +
+        'moradores e visitantes. O LOCATÁRIO autoriza o uso dos seus dados pessoais pelo LOCADOR exclusivamente para a gestão desta ' +
+        'locação e a cobrança de valores devidos.',
+    ])),
   ];
 
   if (String(d.clausulas_extras || '').trim()) {

@@ -375,6 +375,8 @@
         d = {
           imovel: casa ? 'Casa ' + casa.numero : '',
           inquilino: { nome: casa ? casa.inquilino : '', telefone: casa ? casa.telefone : '' },
+          moradores_qtd: casa ? casa.moradores : 1,
+          visita_dias: 14,
           valor_aluguel: casa && casa.aluguel > 1 ? casa.aluguel : '',
           dia_vencimento: casa ? casa.dia_vencimento_aluguel : 10,
           inicio: casa && casa.inquilino_desde ? casa.inquilino_desde + '-01' : '',
@@ -391,7 +393,9 @@
         campo(d, 'imovel_complemento', 'Complemento (opcional)', { ph: 'fundos, 2 cômodos, banheiro…' }) +
         secao('Inquilino') +
         pessoaCampos(d, 'inquilino', { contato: true, endereco: false }) +
-        campo(d, 'ocupantes', 'Outros moradores (nomes)', { full: true, area: 2, hint: 'Vazio = "e sua família".' }) +
+        campo(d, 'moradores_qtd', 'Total de moradores (com o inquilino)', { tipo: 'number', hint: diadema ? 'É o que divide a conta de água.' : '' }) +
+        campo(d, 'visita_dias', 'Visita vira morador após (dias)', { tipo: 'number', padrao: 14, hint: 'Passou disso, conta como morador' + (diadema ? ' na divisão das contas.' : '.') }) +
+        campo(d, 'ocupantes', 'Nomes dos outros moradores', { full: true, area: 2 }) +
         secao('Valor e prazo') +
         campo(d, 'valor_aluguel', 'Aluguel mensal (R$)', { tipo: 'number' }) +
         campo(d, 'dia_vencimento', 'Dia do vencimento', { tipo: 'number' }) +
@@ -400,14 +404,14 @@
         campo(d, 'reajuste_indice', 'Reajuste anual', { opcoes: ['IGP-M', 'IPCA', 'INPC'] }) +
         campo(d, 'multa_atraso_pct', 'Multa por atraso (%)', { tipo: 'number', padrao: 10 }) +
         campo(d, 'juros_mes_pct', 'Juros por mês (%)', { tipo: 'number', padrao: 1 }) +
-        campo(d, 'multa_rescisao_alugueis', 'Multa por sair antes (nº de aluguéis)', { tipo: 'number', padrao: 3, hint: 'Proporcional ao tempo que falta.' }) +
+        campo(d, 'multa_rescisao_alugueis', 'Multa por infração (nº de aluguéis)', { tipo: 'number', padrao: 3, hint: 'Inteira por infração; proporcional se sair antes do prazo.' }) +
         secao('Garantia') +
         campo(d, 'garantia', 'Tipo', { opcoes: [['nenhuma', 'Sem garantia'], ['caucao', 'Caução (depósito)'], ['fiador', 'Fiador']] }) +
         campo(d, 'caucao_valor', 'Valor da caução (R$)', { tipo: 'number', grupo: 'caucao', hint: 'Máximo de 3 aluguéis.' }) +
         campo(d, 'fiador', 'Qualificação do fiador', { full: true, area: 2, grupo: 'fiador', ph: 'Nome, nacionalidade, estado civil, profissão, RG, CPF e endereço' }) +
         secao('Regras da casa') +
         campo(d, 'encargos', 'Contas que o inquilino paga', { full: true, area: 3, hint: 'Vazio = texto padrão: ' + padrao.encargos + '.' }) +
-        campo(d, 'animais', 'Animais', { opcoes: [['proibido', 'Proibidos'], ['autorizado', 'Autorizado (descrever)']] }) +
+        campo(d, 'animais', 'Animais', { opcoes: [['proibido', 'Proibidos (padrão)'], ['autorizado', 'Exceção autorizada (descrever)']] }) +
         campo(d, 'animais_desc', 'Qual animal', { grupo: 'animal', ph: '1 cachorro porte pequeno' }) +
         (diadema
           ? '<div class="field full"><label class="check"><input type="checkbox" data-k="anexar_regras"' +
