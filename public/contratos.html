@@ -331,8 +331,8 @@
       var html = '<div class="form-grid">' +
         secao(diadema ? 'Proprietário 1 (dono das casas)' : 'Locador — você, proprietário') +
         pessoaCampos(p, 'proprietarios.0') +
-        secao(diadema ? 'Proprietário 2 (opcional — ex.: cônjuge)' : 'Cônjuge / coproprietário (opcional)') +
-        pessoaCampos(p, 'proprietarios.1');
+        // Porto Seguro: só você assina como locador (sem cônjuge no contrato)
+        (diadema ? secao('Proprietário 2 (opcional — ex.: cônjuge)') + pessoaCampos(p, 'proprietarios.1') : '');
       if (diadema) {
         html += secao('Procurador — você') + pessoaCampos(p, 'procurador') +
           campo(p, 'procuracao', 'Dados da procuração', { full: true, area: 2,
@@ -351,7 +351,7 @@
       m.el.querySelector('#f-salvar').addEventListener('click', function () {
         var body = lerForm(m.el, {});
         var props = body.proprietarios || {};   // veio como {0:…, 1:…}; a API espera array
-        body.proprietarios = [props[0] || {}, props[1] || {}];
+        body.proprietarios = diadema ? [props[0] || {}, props[1] || {}] : [props[0] || {}];
         App.api('/contratos/partes/' + local, { method: 'PUT', body: body }).then(function () {
           m.fechar();
           App.toast('Partes salvas.', 'ok');
