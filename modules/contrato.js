@@ -173,7 +173,7 @@ function topoImovel(desc, endereco, cidade) {
   const d = String(desc || '').trim(), e = String(endereco || '').trim();
   const partes = [];
   if (d && d.toLowerCase() !== 'casa') partes.push(esc(d));
-  partes.push(esc(e || cidade));
+  partes.push(`<strong>${esc(e || cidade)}</strong>`);
   return partes.join(' · ');
 }
 
@@ -261,7 +261,7 @@ function gerar({ local, partes, contrato, casa, regras }) {
 
     cl('DO OBJETO E DOS MORADORES', pars([
       `O LOCADOR dá em locação ao LOCATÁRIO o imóvel residencial <strong>${v(imovelDesc)}</strong>, ` +
-        `situado em ${v(partes.endereco_imovel)}${d.imovel_complemento ? `, ${esc(d.imovel_complemento)}` : ''}.`,
+        `situado em <strong>${v(partes.endereco_imovel)}</strong>${d.imovel_complemento ? `, ${esc(d.imovel_complemento)}` : ''}.`,
       `O imóvel será ocupado por <strong>${qtdMoradores ? pessoas(qtdMoradores) : `${LINHA} pessoa(s)`}` +
         `</strong>: o LOCATÁRIO${ocupantes ? ` e ${esc(ocupantes)}` : ''}. A entrada de qualquer novo ` +
         'morador depende de autorização prévia e por escrito do LOCADOR.',
@@ -488,10 +488,11 @@ function pagina({ titulo, corpo }) {
   .folha{--azul:#1d4e89;--azul-bg:#eef4fb;--verde:#1f7a4d;--verde-bg:#edf7f1;--cor:#7a1f2b;--cor-bg:#f8eef0}
   .topo{text-align:center;border-bottom:3px double var(--cor);padding-bottom:10px;margin-bottom:18px}
   h1{font-size:16pt;margin:0;letter-spacing:1px;color:var(--cor)}
-  .topo-sub{font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;color:#555;letter-spacing:.5px;margin-top:4px}
+  .topo-sub{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#555;letter-spacing:.5px;margin-top:4px}
   h2{text-align:center;font-size:13pt;margin:0 0 14px;color:var(--cor)}
   p{margin:0 0 8px;text-align:justify}
   strong{color:#000}
+  .topo-sub strong{color:#222}
   .parte{border:1px solid;border-left-width:6px;border-radius:6px;padding:10px 14px 4px;margin:0 0 12px;break-inside:avoid}
   .parte-rotulo{display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:9pt;font-weight:700;
     letter-spacing:1.5px;color:#fff;padding:2px 10px;border-radius:3px;margin-bottom:6px}
