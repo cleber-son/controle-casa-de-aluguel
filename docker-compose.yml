@@ -14,6 +14,10 @@ services:
       - default
       - painel
     restart: unless-stopped
+    # 20/10/2026: teto (uso medido ~0 CPU / pico 56 MB)
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
     logging:
       driver: "json-file"
       options:
